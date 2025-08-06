@@ -1,35 +1,32 @@
-#ifndef MANAGERS_H
+п»ї#ifndef MANAGERS_H
 #define MANAGERS_H
 
 #include <string>
 #include <vector>
+#include "stable_data_structs.h"
 
-// Функция для чтения NetCDF файла с использованием дочернего процесса.
-// Данные переупорядочены в порядке: [region_height][X][T] и возвращаются в виде плоского вектора<double>.
-std::vector<double> read_nc_file(const std::string& filename, int y_start, int y_end);
-
-// Класс для загрузки basis (NetCDF файлы)
+// пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ basis, пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ NetCDF-пїЅпїЅпїЅпїЅпїЅпїЅ
 class BasisManager {
 public:
-    std::string folder; // Путь к директории с basis файлами
+    std::string folder; // пїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ basis-пїЅпїЅпїЅпїЅпїЅпїЅпїЅ (NetCDF-пїЅпїЅпїЅпїЅпїЅ)
 
     explicit BasisManager(const std::string& folder_) : folder(folder_) {}
 
-    // Возвращает вектор, где для каждого файла из директории возвращается
-    // плоский вектор<double> с переупорядоченными данными для региона [y_start, y_end).
-    std::vector<std::vector<double>> get_fk_region(int y_start, int y_end);
+    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ basis пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ [y_start, y_end)
+    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ 4D пїЅпїЅпїЅпїЅпїЅпїЅ: [num_files][T][region_height][X]
+    std::vector<std::vector<std::vector<std::vector<double>>>> get_fk_region(int y_start, int y_end);
 };
 
-// Класс для загрузки волновых данных (Wave data)
+// пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ (Wave data)
 class WaveManager {
 public:
-    std::string nc_file; // Путь к NetCDF файлу с волновыми данными
+    std::string nc_file; // пїЅпїЅпїЅпїЅ пїЅ NetCDF-пїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
 
     explicit WaveManager(const std::string& nc_file_) : nc_file(nc_file_) {}
 
-    // Загружает данные переменной "height" для региона [y_start, y_end)
-    // и возвращает их в виде плоского вектора<double> с переупорядочиванием.
-    std::vector<double> load_mariogramm_by_region(int y_start, int y_end);
+    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ "height" пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ [y_start, y_end)
+    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ 3D пїЅпїЅпїЅпїЅпїЅпїЅ: [T][region_height][X]
+    std::vector<std::vector<std::vector<double>>> load_mariogramm_by_region(int y_start, int y_end);
 };
 
 #endif // MANAGERS_H

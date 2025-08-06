@@ -1,16 +1,15 @@
 #include <iostream>
 #include <vector>
 #include <filesystem>
-#include <chrono>
 #include <Eigen/Dense>
 #include "approx_orto.h"
 #include "stable_data_structs.h"
 #include "statistics.h"
 
-// For convenience
+// Для удобства
 namespace fs = std::filesystem;
 
-// Function to copy a folder (recursively)
+// Функция копирования папки (рекурсивно)
 bool copyFolder(const std::string& source, const std::string& destination) {
     try {
         fs::create_directories(destination);
@@ -21,56 +20,56 @@ bool copyFolder(const std::string& source, const std::string& destination) {
         }
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "Folder copy error: " << e.what() << std::endl;
+        std::cerr << "Ошибка копирования папки: " << e.what() << std::endl;
         return false;
     }
     return true;
 }
 
-// Function to delete a folder
+// Функция удаления папки
 bool deleteFolder(const std::string& folder) {
     try {
         fs::remove_all(folder);
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "Folder deletion error: " << e.what() << std::endl;
+        std::cerr << "Ошибка удаления папки: " << e.what() << std::endl;
         return false;
     }
     return true;
 }
 
-// Function to copy a file
+// Функция копирования файла
 bool copyFile(const std::string& source, const std::string& destination) {
     try {
         fs::create_directories(fs::path(destination).parent_path());
         fs::copy_file(source, destination, fs::copy_options::overwrite_existing);
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "File copy error: " << e.what() << std::endl;
+        std::cerr << "Ошибка копирования файла: " << e.what() << std::endl;
         return false;
     }
     return true;
 }
 
-// Function to delete a file
+// Функция удаления файла
 bool deleteFile(const std::string& file) {
     try {
         fs::remove(file);
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "File deletion error: " << e.what() << std::endl;
+        std::cerr << "Ошибка удаления файла: " << e.what() << std::endl;
         return false;
     }
     return true;
 }
 
-// Function to check if a file or folder exists
+// Функция проверки существования файла
 bool fileExists(const std::string& file) {
     return fs::exists(file);
 }
 
-// It is assumed that AreaConfigurationInfo and the function save_and_plot_statistics are already defined
-// For example:
+// Предполагается, что AreaConfigurationInfo и функция save_and_plot_statistics уже определены
+// Например:
 // class AreaConfigurationInfo { /* ... */ };
 // void save_and_plot_statistics(const std::string&, const std::string&, const std::string&, const std::string&, const AreaConfigurationInfo&);
 
@@ -88,7 +87,7 @@ int runWithPrePost(const std::string& root_folder,
     // Копируем папку basis
     bool copiedFolder = copyFolder(sourceBasisFolder, destBasisFolder);
     if (!copiedFolder) {
-        std::cerr << "error copy folder: " << sourceBasisFolder << std::endl;
+        std::cerr << "Не удалось скопировать папку: " << sourceBasisFolder << std::endl;
         return -1;
     }
 
@@ -103,7 +102,7 @@ int runWithPrePost(const std::string& root_folder,
     if (!fileAlreadyExists && fs::exists(sourceWaveFile)) {
         copiedFile = copyFile(sourceWaveFile, destWaveFile);
         if (!copiedFile) {
-            std::cerr << "error copy file: " << sourceWaveFile << std::endl;
+            std::cerr << "Не удалось скопировать файл: " << sourceWaveFile << std::endl;
             // Если не удалось скопировать файл, удаляем ранее скопированную папку
             deleteFolder(destBasisFolder);
             return -1;
@@ -127,36 +126,36 @@ int runWithPrePost(const std::string& root_folder,
 
     return 0;
 }
-
+// Функция для проведения тестов
 void run_tests() {
     // Размерности для тестовых случаев
     std::vector<int> dimensions = { 3, 4, 5, 6, 8 };
-    // Допустимая погрешность
+    // Порог допуска (например, 1e-6)
     double tol = 1e-6;
     bool all_passed = true;
 
-    std::cout << "tests (approximate_with_non_orthogonal_basis_orto) с постоянным базисом размера n x 2n:\n";
+    std::cout << "tests (approximate_with_non_orthogonal_basis_orto):\n";
 
     for (int n : dimensions) {
-        // Построение константного линейно независимого базиса M размера n x (2*n).
-        // Каждая строка i имеет единицу в столбце i и в столбце (n + i)
-        Eigen::MatrixXd M = Eigen::MatrixXd::Zero(n, 2 * n);
-        for (int i = 0; i < n; ++i) {
-            M(i, i) = 1.0;
-            M(i, n + i) = 1.0;
-        }
+        // Генерируем случайную квадратную матрицу n x n,
+        // представляющую базис (каждая строка – базисный вектор).
+        Eigen::MatrixXd M;
+        // Обеспечиваем обратимость (регенерируем, если определитель слишком мал)
+        do {
+            M = Eigen::MatrixXd::Random(n, n);
+        } while (std::abs(M.determinant()) < 1e-3);
 
-        // Генерация случайного коэффициентного вектора c длины n.
+        // Генерируем случайный вектор коэффициентов c длины n.
         Eigen::VectorXd c = Eigen::VectorXd::Random(n);
-        // Вычисление вектора x как линейной комбинации строк базиса:
-        // x = c[0]*M.row(0) + ... + c[n-1]*M.row(n-1)
-        // При этом x получается как M.transpose() * c, и его размерность будет 2*n.
+        // Вычисляем вектор x как линейную комбинацию базисных векторов:
+        // x = c[0]*M.row(0) + ... + c[n-1]*M.row(n-1).
+        // Чтобы получить столбцовый вектор x, вычисляем:
         Eigen::VectorXd x = M.transpose() * c;
 
-        // Вычисление коэффициентов с помощью функции аппроксимации.
+        // Вычисляем коэффициенты с использованием функции аппроксимации.
         Eigen::VectorXd b = approximate_with_non_orthogonal_basis_orto(x, M);
 
-        // Вычисление ошибки (норма разности между найденными и исходными коэффициентами)
+        // Считаем ошибку (норма разности)
         double error = (b - c).norm();
         std::cout << "dim " << n << ": err = " << error;
         if (error < tol) {
@@ -182,36 +181,28 @@ int main() {
     return 0;
 }
 #else
-int main(int argc, char* argv[]) {
-    // Check for required arguments: bath, wave, basis
-    if (argc < 4) {
-        std::cerr << "usage: " << argv[0] << " bath wave basis" << std::endl;
-        return 1;
-    }
+int main() {
 
-    // Read command line arguments
-    std::string bath = argv[1];
-    std::string wave = argv[2];
-    std::string basis = argv[3];
-
-    // Other parameters can be fixed or also obtained from arguments
+    // Запускаем тесты, если необходимо
+    run_tests();
+    // Параметры проекта
     std::string root_folder = "T:/tsunami_res_folder";
-    std::string cache_folder = "C:/dmitrienkomy/cache";
+    std::string cache_folder = "C:/dmitrienkomy/cache/";
+    std::string bath = "y_200_2000";
+    std::string wave = "gaus_single_2_h";
+    std::string basis = "basis_48";
+    std::vector<std::string> folderNames = {
+        "basis_6"
+    };
 
-    // Initialize area configuration (zones.json must be correct)
+    // Инициализация конфигурации области (файл zones.json должен быть корректным)
     AreaConfigurationInfo area_config("T:/tsunami_res_folder/info/zones.json");
 
-    // If needed, run run_tests(), for example for debugging:
-    run_tests();
-
-    // Execute processing for given parameters
-    // You can use either runWithPrePost or directly save_and_plot_statistics
-    // Example usage of runWithPrePost:
-    if (runWithPrePost(root_folder, cache_folder, bath, wave, basis, area_config) != 0) {
-        std::cerr << "run error in runWithPrePost.\n";
-        return 1;
+    // Вычисляем и сохраняем статистику аппроксимации
+    for (auto& basis : folderNames)
+    {
+        runWithPrePost(root_folder, cache_folder, bath, wave, basis, area_config);
     }
-    //save_and_plot_statistics(cache_folder, "x_200_2000", "gaus_double_1_2", "basis_6", area_config);
     return 0;
 }
 #endif

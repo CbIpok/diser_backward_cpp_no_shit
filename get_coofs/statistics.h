@@ -1,4 +1,5 @@
-﻿#ifndef STATISTICS_H
+﻿// statistics.h
+#ifndef STATISTICS_H
 #define STATISTICS_H
 
 #include <string>
