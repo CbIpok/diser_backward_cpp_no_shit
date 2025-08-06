@@ -8,7 +8,7 @@
 #include <regex>
 namespace fs = std::filesystem;
 
-// ������� ��� �������� NetCDF-����� � ��������� ������
+
 int open_nc_file(const std::string& filename, int& ncid) {
     int retval = nc_open(filename.c_str(), NC_NOWRITE, &ncid);
     if (retval != NC_NOERR) {
@@ -66,7 +66,7 @@ std::vector<std::vector<std::vector<double>>> read_nc_file(const fs::path& file,
     }
     nc_close(ncid);
 
-    // ����������� ������ �� ������ � 3D-������
+
     for (size_t t = 0; t < T; t++) {
         for (size_t i = 0; i < region_height; i++) {
             for (size_t x = 0; x < X; x++) {
@@ -78,36 +78,34 @@ std::vector<std::vector<std::vector<double>>> read_nc_file(const fs::path& file,
     return data;
 }
 
-// ���������� ������ WaveManager::load_mariogramm_by_region � �������������� netcdf.h
+
 std::vector<std::vector<std::vector<double>>> WaveManager::load_mariogramm_by_region(int y_start, int y_end) {
 
     return read_nc_file(nc_file, y_start, y_end);
 }
 
 
-// ������� ��� ���������� ������� �� ����� �����
 int extractIndex(const fs::path& filePath) {
-    // ���������� ��������� ��� ������ ������� _<�����>.nc
+
     std::regex regexPattern("_(\\d+)\\.nc");
     std::smatch match;
     std::string filename = filePath.filename().string();
     if (std::regex_search(filename, match, regexPattern)) {
         return std::stoi(match[1].str());
     }
-    // ���� ������ �� ������, ���������� ������������ ��������,
-    // ����� ���� �������� � ����� ���������������� ������.
+
     return std::numeric_limits<int>::max();
 }
 
-// ������� ��� ��������� ���������������� ������ ������
+
 std::vector<fs::path> getSortedFileList(const std::string& folder) {
     std::vector<fs::path> files;
 
-    // ���������� ��� ����� � �������� ����������
+
     for (const auto& entry : fs::directory_iterator(folder)) {
         if (entry.is_regular_file()) {
             fs::path filePath = entry.path();
-            // ���������, ��� ���� ����� ���������� ".nc" � �������� ������ '_'
+
             if (filePath.extension() == ".nc" &&
                 filePath.filename().string().find('_') != std::string::npos) {
                 files.push_back(filePath);
@@ -115,7 +113,7 @@ std::vector<fs::path> getSortedFileList(const std::string& folder) {
         }
     }
 
-    // ��������� ����� �� ��������� ��������, ������������ �� ����� �����
+
     std::sort(files.begin(), files.end(), [](const fs::path& a, const fs::path& b) {
         return extractIndex(a) < extractIndex(b);
         });
@@ -128,7 +126,7 @@ std::vector<std::vector<std::vector<std::vector<double>>>> BasisManager::get_fk_
     std::vector<std::vector<std::vector<std::vector<double>>>> fk;
     std::vector<fs::path> files = getSortedFileList(folder);
 
-    // ���������������� ��������� ������
+
     for (const auto& file : files) {
         auto file_data = read_nc_file(file, y_start, y_end);
         if (!file_data.empty()) {

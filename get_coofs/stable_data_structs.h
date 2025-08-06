@@ -9,7 +9,7 @@
 
 class AreaConfigurationInfo {
 public:
-    std::vector<int> all;              // ������� �������, ��������, [width, height]
+    std::vector<int> all;              
     std::vector<int> subduction_bounds;
     std::vector<int> mariogramm_bounds;
 

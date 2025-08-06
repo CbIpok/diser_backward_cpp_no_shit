@@ -26,19 +26,19 @@ Matrix gram_schmidt(const Matrix& vectors) {
                 // Проверка деления на ноль (или слишком малое значение)
                 if (std::abs(denominator) < 1e-10) {
                     std::cout << "f: " << orthogonal_vectors.row(j) << std::endl;
-                    throw std::runtime_error("Деление на ноль: нормированный вектор слишком близок к нулю.");
+                    throw std::runtime_error("Division by zero: normalized vector too close to zero");
                 }
                 double scale = dot_product(new_vector, orthogonal_vectors.row(j)) / denominator;
                 // Проверка scale на NaN
                 if (std::isnan(scale)) {
-                    throw std::runtime_error("Обнаружено NaN при вычислении коэффициента масштабирования.");
+                    throw std::runtime_error("NaN encountered while calculating scaling factor.");
                 }
                 new_vector -= scale * orthogonal_vectors.row(j);
 
                 // Проверка каждого элемента new_vector на NaN
                 for (int k = 0; k < new_vector.size(); ++k) {
                     if (std::isnan(new_vector[k])) {
-                        throw std::runtime_error("Обнаружено NaN в векторе после вычитания.");
+                        throw std::runtime_error("NaN found in vector after subtraction.");
                     }
                 }
             }
@@ -46,7 +46,7 @@ Matrix gram_schmidt(const Matrix& vectors) {
         }
         // Альтернативно, можно проверить всю строку с использованием встроенной функции Eigen:
         if (orthogonal_vectors.row(i).hasNaN()) {
-            throw std::runtime_error("Обнаружено NaN в вычисленной ортогональной строке.");
+            throw std::runtime_error("NaN found in computed orthogonal row.");
         }
     }
     return orthogonal_vectors;

@@ -8,16 +8,15 @@
 #include "stable_data_structs.h"
 #include "managers.h"
 
-// ����� ��������� ��� �������� ������������� � ������ �������������
 struct CoefficientData {
     Eigen::VectorXd coefs;
     double aprox_error;
 };
 
-// ��� ��� �������� ������ �� ���� ��������: ��������� ������ �������� CoefficientData
+
 using CoeffMatrix = std::vector<std::vector<CoefficientData>>;
 
-// ������� ��� ���������� ���������� ������������� �� ����� �������
+
 void calculate_statistics(const std::string& root_folder,
     const std::string& bath,
     const std::string& wave,
@@ -25,7 +24,7 @@ void calculate_statistics(const std::string& root_folder,
     const AreaConfigurationInfo& area_config,
     CoeffMatrix& statistics_orto);
 
-// ������� ��� ���������� ���������� � JSON-����
+
 void save_and_plot_statistics(const std::string& root_folder,
     const std::string& bath,
     const std::string& wave,
