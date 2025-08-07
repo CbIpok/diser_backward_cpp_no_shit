@@ -106,7 +106,15 @@ Vector compute_bi(size_t k, const Vector& a_k, const Matrix& l) {
 // Основная функция аппроксимации (ортогонализованный метод)
 Vector approximate_with_non_orthogonal_basis_orto(const Vector& x, const Matrix& f_k) {
 
-    Matrix e_i = gram_schmidt(f_k);
+    Matrix e_i;
+    try {
+        // Попытка орто-нормировки
+        e_i = gram_schmidt(f_k);
+    }
+    catch (const std::runtime_error& err) {
+        // При ошибке возвращаем вектор NaN той же размерности, что и x
+        return Vector::Constant(f_k.rows(), std::numeric_limits<double>::quiet_NaN());
+    } 
 
     // Разложение вектора x по ортогональному базису
     Vector a_k = decompose_vector(x, e_i);

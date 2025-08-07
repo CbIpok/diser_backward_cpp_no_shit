@@ -1,4 +1,5 @@
-﻿#include "statistics.h"
+﻿// statistics.cpp
+#include "statistics.h"
 #include "approx_orto.h"
 #include <Eigen/Dense>
 #include <fstream>
@@ -6,9 +7,13 @@
 #include <sstream>
 #include <future>
 #include <algorithm>
-#include "json.hpp" 
+#include "json.hpp"
+#include <boost/geometry.hpp>
+#include <boost/geometry/geometries/point.hpp>
 
 using json = nlohmann::json;
+namespace bg = boost::geometry;
+using Point2i = bg::model::d2::point_xy<int>;
 
 
 int count_from_name(const std::string& name) {
@@ -30,77 +35,71 @@ void calculate_statistics(const std::string& root_folder,
     const std::string& basis,
     const AreaConfigurationInfo& area_config,
     CoeffMatrix& statistics_orto) {
-   
-    std::string basis_path = root_folder + "/" + bath + "/" + basis;
-    std::string wave_nc_path = root_folder + "/" + bath + "/" + wave + ".nc";
 
-    BasisManager basis_manager(basis_path);
-    WaveManager wave_manager(wave_nc_path);
+    // 1) вычисляем границы полигона
+    int minY = area_config.height, maxY = 0;
+    int minX = area_config.width, maxX = 0;
+    for (auto const& p : area_config.mariogramm_poly.outer()) {
+        minX = std::min(minX, int(bg::get<0>(p)));
+        maxX = std::max(maxX, int(bg::get<0>(p)));
+        minY = std::min(minY, int(bg::get<1>(p)));
+        maxY = std::max(maxY, int(bg::get<1>(p)));
+    }
+    // прочитать весь прямоугольник [minY..maxY)
+    BasisManager basis_manager(root_folder + "/" + bath + "/" + basis);
+    WaveManager  wave_manager(root_folder + "/" + bath + "/" + wave + ".nc");
 
-    int width = area_config.all[0];
-    int height = area_config.all[1];
-    int batch_size = 64 * 6 / count_from_name(basis);
-    int y_start_init = 75;
+    auto fk_data = basis_manager.get_fk_region(minY, maxY);
+    auto wave_data = wave_manager.load_mariogramm_by_region(minY, maxY);
+    if (fk_data.empty() || wave_data.empty()) return;
 
-    statistics_orto.clear();
+    int T = int(wave_data.size());
+    int H = maxY - minY;
+    int W = area_config.width;
+    int n_basis = int(fk_data.size());
 
-    for (int y_start = y_start_init; y_start < height / 4; y_start += batch_size) {
-        int y_end = std::min(y_start + batch_size, height);
-        auto wave_data = wave_manager.load_mariogramm_by_region(y_start, y_end);
-        auto fk_data = basis_manager.get_fk_region(y_start, y_end);
-        if (wave_data.empty() || fk_data.empty()) continue;
-        int T = wave_data.size();
-        int region_height = wave_data[0].size();
-        int region_width = wave_data[0][0].size();
-        int n_basis = fk_data.size();
+    // 2) параллельно по строкам в прям-ке
+    std::vector<std::future<std::vector<CoefficientData>>> futs;
+    futs.reserve(H);
+    for (int i = 0; i < H; ++i) {
+        futs.push_back(std::async(std::launch::async,
+            [&, i]() -> std::vector<CoefficientData> {
+                std::vector<CoefficientData> row;
+                for (int x = minX; x <= maxX; ++x) {
+                    // глобальные координаты
+                    Point2i pt{ x, minY + i };
+                    // проверяем, внутри ли полигона
+                    if (!bg::within(pt, area_config.mariogramm_poly))
+                        continue;
 
-        int x_max = width / 4;
-        std::cout << "loaded\n";
+                    // собираем wave_vector
+                    Eigen::VectorXd wave_vec(T);
+                    for (int t = 0; t < T; ++t)
+                        wave_vec[t] = wave_data[t][i][x];
 
-        std::vector<std::future<std::vector<CoefficientData>>> futures;
-        futures.reserve(region_height);
+                    // собираем матрицу basis (n_basis × T)
+                    Eigen::MatrixXd B(n_basis, T);
+                    for (int b = 0; b < n_basis; ++b)
+                        for (int t = 0; t < T; ++t)
+                            B(b, t) = fk_data[b][t][i][x];
 
-        for (int i = 0; i < region_height; i++) {
-            futures.push_back(std::async(std::launch::async, [i, T, x_max, n_basis, &wave_data, &fk_data]() -> std::vector<CoefficientData> {
-                std::vector<CoefficientData> row_data;
-                for (int x = 0; x < x_max; x++) {
-                  
-                    Eigen::VectorXd wave_vector(T);
-                    for (int t = 0; t < T; t++) {
-                        wave_vector[t] = wave_data[t][i][x];
-                    }
-                    
-                    Eigen::MatrixXd smoothed_basis(n_basis, T);
-                    for (int b = 0; b < n_basis; b++) {
-                        for (int t = 0; t < T; t++) {
-                            smoothed_basis(b, t) = fk_data[b][t][i][x];
-                        }
-                    }
-                    if (smoothed_basis.cols() != wave_vector.size()) continue;
+                    // вычисляем коэффициенты и погрешность
+                    auto coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
+                    Eigen::VectorXd approx = B.transpose() * coefs;
+                    double err = std::sqrt((wave_vec - approx).squaredNorm() / T);
 
-                 
-                    Eigen::VectorXd coefs_orto = approximate_with_non_orthogonal_basis_orto(wave_vector, smoothed_basis);
-
-                   
-                    Eigen::VectorXd approximation = smoothed_basis.transpose() * coefs_orto;
-                   
-                    double error = std::sqrt((wave_vector - approximation).squaredNorm() / wave_vector.size());
-
-                    CoefficientData pixelData;
-                    pixelData.coefs = coefs_orto;
-                    pixelData.aprox_error = error;
-                    row_data.push_back(pixelData);
+                    row.push_back({ pt, coefs, err });
                 }
-                return row_data;
-                }));
-        }
-
-        for (auto& future : futures) {
-            auto row_data = future.get();
-            if (!row_data.empty()) {
-                statistics_orto.push_back(row_data);
+                return row;
             }
-        }
+        ));
+    }
+
+    // собираем всё в statistics_orto
+    for (auto& f : futs) {
+        auto partial = f.get();
+        if (!partial.empty())
+            statistics_orto.push_back(std::move(partial));
     }
 }
 
@@ -108,7 +107,7 @@ void save_coefficients_json(const std::string& filename, const CoeffMatrix& coef
     nlohmann::json j;
     for (size_t row = 0; row < coeffs.size(); ++row) {
         for (size_t col = 0; col < coeffs[row].size(); ++col) {
-            std::string key = "[" + std::to_string(row) + "," + std::to_string(col) + "]";
+            std::string key = "[" + std::to_string(bg::get<0>(coeffs[row][col].pt)) + "," + std::to_string(bg::get<1>(coeffs[row][col].pt)) + "]";
            
             std::vector<double> vec(coeffs[row][col].coefs.data(),
                 coeffs[row][col].coefs.data() + coeffs[row][col].coefs.size());

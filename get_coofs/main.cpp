@@ -5,7 +5,8 @@
 #include "approx_orto.h"
 #include "stable_data_structs.h"
 #include "statistics.h"
-
+#include <opencv2/highgui.hpp>    // для imshow, namedWindow, waitKey
+#include <opencv2/imgcodecs.hpp> 
 
 namespace fs = std::filesystem;
 
@@ -175,19 +176,27 @@ int main() {
 
     run_tests();
 
-    std::string root_folder = "T:/tsunami_res_folder";
+    std::string root_folder = "T:/tsumami_temp_shared_folder/res";
     std::string cache_folder = "C:/dmitrienkomy/cache/";
-    std::string bath = "y_200_2000";
-    std::string wave = "gaus_single_2_h";
+    std::string bath = "Tokai_most";
+    std::string wave = "functions";
     std::string basis = "basis_48";
     std::vector<std::string> folderNames = {
-        "basis_6"
+        "basis_4"
     };
 
     // Инициализация конфигурации области (файл zones.json должен быть корректным)
-    AreaConfigurationInfo area_config("T:/tsunami_res_folder/info/zones.json");
+    AreaConfigurationInfo area_config("T:/tsunami_res_folder/info/zones_new.json");
+    //cv::Mat img(area_config.height, area_config.width, CV_8UC3, cv::Scalar(0, 0, 0));
 
-    // Вычисляем и сохраняем статистику аппроксимации
+    //// 3. Рисуем границу полигона
+    //area_config.draw(img, /*цвет BGR*/ cv::Scalar(0, 255, 0), /*толщина*/ 2);
+
+    //// 4. Показываем результат
+    //cv::namedWindow("Mariogramm Area", cv::WINDOW_NORMAL);
+    //cv::imshow("Mariogramm Area", img);
+    //cv::waitKey(0);
+
     for (auto& basis : folderNames)
     {
         runWithPrePost(root_folder, cache_folder, bath, wave, basis, area_config);

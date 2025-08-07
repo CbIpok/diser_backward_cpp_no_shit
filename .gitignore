@@ -2,3 +2,5 @@
 /get_coofs/x64
 /nc_reader/x64
 /x64
+*.json
+*.json

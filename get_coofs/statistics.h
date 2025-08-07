@@ -9,6 +9,7 @@
 #include "managers.h"
 
 struct CoefficientData {
+    Point2i pt;
     Eigen::VectorXd coefs;
     double aprox_error;
 };
