@@ -5,7 +5,7 @@
 #include "approx_orto.h"
 #include "stable_data_structs.h"
 #include "statistics.h"
-#include <opencv2/highgui.hpp>    // для imshow, namedWindow, waitKey
+#include <opencv2/highgui.hpp>    // РґР»СЏ imshow, namedWindow, waitKey
 #include <opencv2/imgcodecs.hpp> 
 
 namespace fs = std::filesystem;
@@ -21,7 +21,7 @@ bool copyFolder(const std::string& source, const std::string& destination) {
         }
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "Ошибка копирования папки: " << e.what() << std::endl;
+        std::cerr << "РћС€РёР±РєР° РєРѕРїРёСЂРѕРІР°РЅРёСЏ РїР°РїРєРё: " << e.what() << std::endl;
         return false;
     }
     return true;
@@ -32,7 +32,7 @@ bool deleteFolder(const std::string& folder) {
         fs::remove_all(folder);
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "Ошибка удаления папки: " << e.what() << std::endl;
+        std::cerr << "РћС€РёР±РєР° СѓРґР°Р»РµРЅРёСЏ РїР°РїРєРё: " << e.what() << std::endl;
         return false;
     }
     return true;
@@ -45,7 +45,7 @@ bool copyFile(const std::string& source, const std::string& destination) {
         fs::copy_file(source, destination, fs::copy_options::overwrite_existing);
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "Ошибка копирования файла: " << e.what() << std::endl;
+        std::cerr << "РћС€РёР±РєР° РєРѕРїРёСЂРѕРІР°РЅРёСЏ С„Р°Р№Р»Р°: " << e.what() << std::endl;
         return false;
     }
     return true;
@@ -57,7 +57,7 @@ bool deleteFile(const std::string& file) {
         fs::remove(file);
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "Ошибка удаления файла: " << e.what() << std::endl;
+        std::cerr << "РћС€РёР±РєР° СѓРґР°Р»РµРЅРёСЏ С„Р°Р№Р»Р°: " << e.what() << std::endl;
         return false;
     }
     return true;
@@ -83,7 +83,7 @@ int runWithPrePost(const std::string& root_folder,
 
     bool copiedFolder = copyFolder(sourceBasisFolder, destBasisFolder);
     if (!copiedFolder) {
-        std::cerr << "Не удалось скопировать папку: " << sourceBasisFolder << std::endl;
+        std::cerr << "РќРµ СѓРґР°Р»РѕСЃСЊ СЃРєРѕРїРёСЂРѕРІР°С‚СЊ РїР°РїРєСѓ: " << sourceBasisFolder << std::endl;
         return -1;
     }
 
@@ -97,7 +97,7 @@ int runWithPrePost(const std::string& root_folder,
     if (!fileAlreadyExists && fs::exists(sourceWaveFile)) {
         copiedFile = copyFile(sourceWaveFile, destWaveFile);
         if (!copiedFile) {
-            std::cerr << "Не удалось скопировать файл: " << sourceWaveFile << std::endl;
+            std::cerr << "РќРµ СѓРґР°Р»РѕСЃСЊ СЃРєРѕРїРёСЂРѕРІР°С‚СЊ С„Р°Р№Р»: " << sourceWaveFile << std::endl;
         
             deleteFolder(destBasisFolder);
             return -1;
@@ -109,13 +109,13 @@ int runWithPrePost(const std::string& root_folder,
 
 
     if (!deleteFolder(destBasisFolder)) {
-        std::cerr << "Не удалось удалить папку: " << destBasisFolder << std::endl;
+        std::cerr << "РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ РїР°РїРєСѓ: " << destBasisFolder << std::endl;
     }
 
 
     if (copiedFile) {
         if (!deleteFile(destWaveFile)) {
-            std::cerr << "Не удалось удалить файл: " << destWaveFile << std::endl;
+            std::cerr << "РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ С„Р°Р№Р»: " << destWaveFile << std::endl;
         }
     }
 
@@ -172,7 +172,7 @@ int main() {
     return 0;
 }
 #else
-int main() {
+int main(int argc, char* argv[]) {
 
     run_tests();
 
@@ -180,19 +180,23 @@ int main() {
     std::string cache_folder = "C:/dmitrienkomy/cache/";
     std::string bath = "Tokai_most";
     std::string wave = "functions";
-    std::string basis = "basis_48";
-    std::vector<std::string> folderNames = {
-        "basis_4"
-    };
 
-    // Инициализация конфигурации области (файл zones.json должен быть корректным)
+    std::vector<std::string> folderNames;
+    for (int i = 1; i < argc; ++i) {
+        folderNames.emplace_back(argv[i]);
+    }
+    if (folderNames.empty()) {
+        folderNames = { "basis_4" };
+    }
+
+    // РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ РєРѕРЅС„РёРіСѓСЂР°С†РёРё РѕР±Р»Р°СЃС‚Рё (С„Р°Р№Р» zones.json РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РєРѕСЂСЂРµРєС‚РЅС‹Рј)
     AreaConfigurationInfo area_config("T:/tsunami_res_folder/info/zones_new.json");
     //cv::Mat img(area_config.height, area_config.width, CV_8UC3, cv::Scalar(0, 0, 0));
 
-    //// 3. Рисуем границу полигона
-    //area_config.draw(img, /*цвет BGR*/ cv::Scalar(0, 255, 0), /*толщина*/ 2);
+    //// 3. Р РёСЃСѓРµРј РіСЂР°РЅРёС†Сѓ РїРѕР»РёРіРѕРЅР°
+    //area_config.draw(img, /*С†РІРµС‚ BGR*/ cv::Scalar(0, 255, 0), /*С‚РѕР»С‰РёРЅР°*/ 2);
 
-    //// 4. Показываем результат
+    //// 4. РџРѕРєР°Р·С‹РІР°РµРј СЂРµР·СѓР»СЊС‚Р°С‚
     //cv::namedWindow("Mariogramm Area", cv::WINDOW_NORMAL);
     //cv::imshow("Mariogramm Area", img);
     //cv::waitKey(0);
