@@ -58,48 +58,56 @@ void calculate_statistics(const std::string& root_folder,
     int W = area_config.width;
     int n_basis = int(fk_data.size());
 
-    // 2) параллельно по строкам в прям-ке
-    std::vector<std::future<std::vector<CoefficientData>>> futs;
-    futs.reserve(H);
-    for (int i = 0; i < H; ++i) {
-        futs.push_back(std::async(std::launch::async,
-            [&, i]() -> std::vector<CoefficientData> {
-                std::vector<CoefficientData> row;
-                for (int x = minX; x <= maxX; ++x) {
-                    // глобальные координаты
-                    Point2i pt{ x, minY + i };
-                    // проверяем, внутри ли полигона
-                    if (!bg::within(pt, area_config.mariogramm_poly))
-                        continue;
+    // 2) параллельно обрабатываем строки ограниченным числом потоков
+    constexpr int THREAD_LIMIT = 16;
+    int num_threads = std::min(THREAD_LIMIT, H);
 
-                    // собираем wave_vector
-                    Eigen::VectorXd wave_vec(T);
+    statistics_orto.resize(H);
+    std::vector<std::future<void>> futs;
+    futs.reserve(num_threads);
+
+    auto worker = [&](int start_row, int end_row) {
+        Eigen::VectorXd wave_vec(T);
+        Eigen::MatrixXd B(n_basis, T);
+        for (int i = start_row; i < end_row; ++i) {
+            std::vector<CoefficientData> row;
+            for (int x = minX; x <= maxX; ++x) {
+                // глобальные координаты
+                Point2i pt{ x, minY + i };
+                // проверяем, внутри ли полигона
+                if (!bg::within(pt, area_config.mariogramm_poly))
+                    continue;
+
+                // собираем wave_vector
+                for (int t = 0; t < T; ++t)
+                    wave_vec[t] = wave_data[t][i][x];
+
+                // собираем матрицу basis (n_basis × T)
+                for (int b = 0; b < n_basis; ++b)
                     for (int t = 0; t < T; ++t)
-                        wave_vec[t] = wave_data[t][i][x];
+                        B(b, t) = fk_data[b][t][i][x];
 
-                    // собираем матрицу basis (n_basis × T)
-                    Eigen::MatrixXd B(n_basis, T);
-                    for (int b = 0; b < n_basis; ++b)
-                        for (int t = 0; t < T; ++t)
-                            B(b, t) = fk_data[b][t][i][x];
+                // вычисляем коэффициенты и погрешность
+                auto coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
+                Eigen::VectorXd approx = B.transpose() * coefs;
+                double err = std::sqrt((wave_vec - approx).squaredNorm() / T);
 
-                    // вычисляем коэффициенты и погрешность
-                    auto coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
-                    Eigen::VectorXd approx = B.transpose() * coefs;
-                    double err = std::sqrt((wave_vec - approx).squaredNorm() / T);
-
-                    row.push_back({ pt, coefs, err });
-                }
-                return row;
+                row.push_back({ pt, coefs, err });
             }
-        ));
+            statistics_orto[i] = std::move(row);
+        }
+    };
+
+    int rows_per_thread = (H + num_threads - 1) / num_threads;
+    for (int t = 0; t < num_threads; ++t) {
+        int start = t * rows_per_thread;
+        int end = std::min(start + rows_per_thread, H);
+        if (start >= end) break;
+        futs.emplace_back(std::async(std::launch::async, worker, start, end));
     }
 
-    // собираем всё в statistics_orto
     for (auto& f : futs) {
-        auto partial = f.get();
-        if (!partial.empty())
-            statistics_orto.push_back(std::move(partial));
+        f.get();
     }
 }
 
