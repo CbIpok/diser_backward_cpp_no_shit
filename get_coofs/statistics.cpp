@@ -59,7 +59,7 @@ void calculate_statistics(const std::string& root_folder,
     int W = static_cast<int>(wave_sample[0][0].size());
     int n_basis = static_cast<int>(fk_sample.size());
 
-    constexpr std::size_t MAX_MEMORY_BYTES = 32ULL * 1024ULL * 1024ULL * 1024ULL; // 50 GB
+    constexpr std::size_t MAX_MEMORY_BYTES = 40ULL * 1024ULL * 1024ULL * 1024ULL; // 50 GB
     std::size_t bytes_per_row = static_cast<std::size_t>(n_basis + 1) * T * W * sizeof(double);
     int band_height = static_cast<int>(std::max<std::size_t>(1, MAX_MEMORY_BYTES / bytes_per_row));
 
@@ -151,7 +151,7 @@ void save_and_plot_statistics(const std::string& root_folder,
     CoeffMatrix statistics_orto;
     calculate_statistics(root_folder, bath, wave, basis, area_config, statistics_orto);
 
-    std::string filename_orto = "case_statistics_hd_y_" + basis + bath + "_o.json";
+    std::string filename_orto = "case_statistics_" + basis + bath + wave + "_o.json";
 
     save_coefficients_json(filename_orto, statistics_orto);
 
