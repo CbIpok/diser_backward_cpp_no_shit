@@ -45,61 +45,79 @@ void calculate_statistics(const std::string& root_folder,
         minY = std::min(minY, int(bg::get<1>(p)));
         maxY = std::max(maxY, int(bg::get<1>(p)));
     }
-    // прочитать весь прямоугольник [minY..maxY)
     BasisManager basis_manager(root_folder + "/" + bath + "/" + basis);
     WaveManager  wave_manager(root_folder + "/" + bath + "/" + wave + ".nc");
 
-    auto fk_data = basis_manager.get_fk_region(minY, maxY);
-    auto wave_data = wave_manager.load_mariogramm_by_region(minY, maxY);
-    if (fk_data.empty() || wave_data.empty()) return;
-
-    int T = int(wave_data.size());
     int H = maxY - minY;
-    int W = area_config.width;
-    int n_basis = int(fk_data.size());
 
-    // 2) параллельно по строкам в прям-ке
-    std::vector<std::future<std::vector<CoefficientData>>> futs;
-    futs.reserve(H);
-    for (int i = 0; i < H; ++i) {
-        futs.push_back(std::async(std::launch::async,
-            [&, i]() -> std::vector<CoefficientData> {
-                std::vector<CoefficientData> row;
-                for (int x = minX; x <= maxX; ++x) {
-                    // глобальные координаты
-                    Point2i pt{ x, minY + i };
-                    // проверяем, внутри ли полигона
-                    if (!bg::within(pt, area_config.mariogramm_poly))
-                        continue;
+    // Для оценки ширины полосы чтения загружаем одну строку
+    auto fk_sample = basis_manager.get_fk_region(minY, minY + 1);
+    auto wave_sample = wave_manager.load_mariogramm_by_region(minY, minY + 1);
+    if (fk_sample.empty() || wave_sample.empty()) return;
 
-                    // собираем wave_vector
-                    Eigen::VectorXd wave_vec(T);
-                    for (int t = 0; t < T; ++t)
-                        wave_vec[t] = wave_data[t][i][x];
+    int T = static_cast<int>(wave_sample.size());
+    int W = static_cast<int>(wave_sample[0][0].size());
+    int n_basis = static_cast<int>(fk_sample.size());
 
-                    // собираем матрицу basis (n_basis × T)
-                    Eigen::MatrixXd B(n_basis, T);
-                    for (int b = 0; b < n_basis; ++b)
+    constexpr std::size_t MAX_MEMORY_BYTES = 32ULL * 1024ULL * 1024ULL * 1024ULL; // 50 GB
+    std::size_t bytes_per_row = static_cast<std::size_t>(n_basis + 1) * T * W * sizeof(double);
+    int band_height = static_cast<int>(std::max<std::size_t>(1, MAX_MEMORY_BYTES / bytes_per_row));
+
+    for (int band_start = 0; band_start < H; band_start += band_height) {
+        int band_end = std::min(H, band_start + band_height);
+
+        auto fk_data = basis_manager.get_fk_region(minY + band_start, minY + band_end);
+        auto wave_data = wave_manager.load_mariogramm_by_region(minY + band_start, minY + band_end);
+        if (fk_data.empty() || wave_data.empty()) continue;
+
+        int bandH = band_end - band_start;
+
+        // 2) параллельно по строкам блока на 24 потока
+        constexpr int THREADS = 24;
+        int rows_per_thread = (bandH + THREADS - 1) / THREADS;
+        CoeffMatrix band_results(bandH);
+        std::vector<std::future<void>> futs;
+
+        for (int t_id = 0; t_id < THREADS; ++t_id) {
+            int start = t_id * rows_per_thread;
+            if (start >= bandH) break;
+            int end = std::min(start + rows_per_thread, bandH);
+            futs.push_back(std::async(std::launch::async, [&, start, end]() {
+                for (int i = start; i < end; ++i) {
+                    std::vector<CoefficientData> row;
+                    for (int x = minX; x <= maxX; ++x) {
+                        Point2i pt{ x, minY + band_start + i };
+                        if (!bg::within(pt, area_config.mariogramm_poly))
+                            continue;
+
+                        Eigen::VectorXd wave_vec(T);
                         for (int t = 0; t < T; ++t)
-                            B(b, t) = fk_data[b][t][i][x];
+                            wave_vec[t] = wave_data[t][i][x];
 
-                    // вычисляем коэффициенты и погрешность
-                    auto coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
-                    Eigen::VectorXd approx = B.transpose() * coefs;
-                    double err = std::sqrt((wave_vec - approx).squaredNorm() / T);
+                        Eigen::MatrixXd B(n_basis, T);
+                        for (int b = 0; b < n_basis; ++b)
+                            for (int t = 0; t < T; ++t)
+                                B(b, t) = fk_data[b][t][i][x];
 
-                    row.push_back({ pt, coefs, err });
+                        auto coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
+                        Eigen::VectorXd approx = B.transpose() * coefs;
+                        double err = std::sqrt((wave_vec - approx).squaredNorm() / T);
+
+                        row.push_back({ pt, coefs, err });
+                    }
+                    band_results[i] = std::move(row);
                 }
-                return row;
-            }
-        ));
-    }
+            }));
+        }
 
-    // собираем всё в statistics_orto
-    for (auto& f : futs) {
-        auto partial = f.get();
-        if (!partial.empty())
-            statistics_orto.push_back(std::move(partial));
+        for (auto& f : futs) {
+            f.get();
+        }
+
+        for (auto& row : band_results) {
+            if (!row.empty())
+                statistics_orto.push_back(std::move(row));
+        }
     }
 }
 
