@@ -7,6 +7,7 @@
 #include <sstream>
 #include <future>
 #include <algorithm>
+#include <utility>
 #include "json.hpp"
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point.hpp>
@@ -71,17 +72,29 @@ void calculate_statistics(const std::string& root_folder,
         if (fk_data.empty() || wave_data.empty()) continue;
 
         int bandH = band_end - band_start;
+        if (bandH <= 0)
+            continue;
 
         // 2) параллельно по строкам блока на 24 потока
         constexpr int THREADS = 24;
-        int rows_per_thread = (bandH + THREADS - 1) / THREADS;
+        int rows_per_thread = std::max(1, (bandH + THREADS - 1) / THREADS);
+
+        // заранее режем загруженный блок на жирные диапазоны строк,
+        // чтобы каждый поток получил свою крупную порцию работы
+        std::vector<std::pair<int, int>> row_ranges;
+        row_ranges.reserve((bandH + rows_per_thread - 1) / rows_per_thread);
+        for (int start = 0; start < bandH; start += rows_per_thread) {
+            int end = std::min(start + rows_per_thread, bandH);
+            row_ranges.emplace_back(start, end);
+        }
+
         CoeffMatrix band_results(bandH);
         std::vector<std::future<void>> futs;
+        futs.reserve(row_ranges.size());
 
-        for (int t_id = 0; t_id < THREADS; ++t_id) {
-            int start = t_id * rows_per_thread;
-            if (start >= bandH) break;
-            int end = std::min(start + rows_per_thread, bandH);
+        for (const auto& range : row_ranges) {
+            int start = range.first;
+            int end = range.second;
             futs.push_back(std::async(std::launch::async, [&, start, end]() {
                 for (int i = start; i < end; ++i) {
                     std::vector<CoefficientData> row;
