@@ -80,40 +80,54 @@ int runWithPrePost(const std::string& root_folder,
     std::string destBathFolder = cache_folder + "/" + bath;
     std::string destBasisFolder = destBathFolder + "/" + basis;
 
+    bool shouldCopy = root_folder != cache_folder;
+    bool copiedFolder = false;
 
-    bool copiedFolder = copyFolder(sourceBasisFolder, destBasisFolder);
-    if (!copiedFolder) {
-        std::cerr << "Не удалось скопировать папку: " << sourceBasisFolder << std::endl;
+    if (shouldCopy) {
+        copiedFolder = copyFolder(sourceBasisFolder, destBasisFolder);
+        if (!copiedFolder) {
+            std::cerr << "Не удалось скопировать папку: " << sourceBasisFolder << std::endl;
+            return -1;
+        }
+    }
+    else if (!fs::exists(destBasisFolder)) {
+        std::cerr << "Папка не найдена: " << destBasisFolder << std::endl;
         return -1;
     }
-
 
     std::string sourceWaveFile = root_folder + "/" + bath + "/" + wave + ".nc";
     std::string destWaveFile = destBathFolder + "/" + wave + ".nc";
 
-    bool fileAlreadyExists = fileExists(destWaveFile);
     bool copiedFile = false;
 
-    if (!fileAlreadyExists && fs::exists(sourceWaveFile)) {
-        copiedFile = copyFile(sourceWaveFile, destWaveFile);
-        if (!copiedFile) {
-            std::cerr << "Не удалось скопировать файл: " << sourceWaveFile << std::endl;
-        
-            deleteFolder(destBasisFolder);
-            return -1;
+    if (shouldCopy) {
+        bool fileAlreadyExists = fileExists(destWaveFile);
+        if (!fileAlreadyExists && fs::exists(sourceWaveFile)) {
+            copiedFile = copyFile(sourceWaveFile, destWaveFile);
+            if (!copiedFile) {
+                std::cerr << "Не удалось скопировать файл: " << sourceWaveFile << std::endl;
+
+                if (copiedFolder) {
+                    deleteFolder(destBasisFolder);
+                }
+                return -1;
+            }
         }
     }
-
+    else if (!fileExists(destWaveFile)) {
+        std::cerr << "Файл не найден: " << destWaveFile << std::endl;
+        return -1;
+    }
 
     save_and_plot_statistics(cache_folder, bath, wave, basis, area_config);
 
-
-    if (!deleteFolder(destBasisFolder)) {
-        std::cerr << "Не удалось удалить папку: " << destBasisFolder << std::endl;
+    if (shouldCopy && copiedFolder) {
+        if (!deleteFolder(destBasisFolder)) {
+            std::cerr << "Не удалось удалить папку: " << destBasisFolder << std::endl;
+        }
     }
 
-
-    if (copiedFile) {
+    if (shouldCopy && copiedFile) {
         if (!deleteFile(destWaveFile)) {
             std::cerr << "Не удалось удалить файл: " << destWaveFile << std::endl;
         }
@@ -176,18 +190,20 @@ int main(int argc, char* argv[]) {
 
     run_tests();
 
-    std::string root_folder = "T:/tsumami_temp_shared_folder/res";
-    std::string cache_folder = "C:/dmitrienkomy/cache/";
-    std::string bath = "Tokai_most";
-    std::string wave = "functions";
+    if (argc < 6) {
+        std::cerr << "Usage: " << argv[0]
+            << " <root_folder> <cache_folder> <bath> <wave> <basis_folder1> [basis_folder2 ...]" << std::endl;
+        return 1;
+    }
+
+    std::string root_folder = argv[1];
+    std::string cache_folder = argv[2];
+    std::string bath = argv[3];
+    std::string wave = argv[4];
 
     std::vector<std::string> folderNames;
-    for (int i = 1; i < argc; ++i) {
+    for (int i = 5; i < argc; ++i) {
         folderNames.emplace_back(argv[i]);
-    }
-    if (folderNames.empty()) {
-        std::cerr << "Usage: " << argv[0] << " <basis_folder1> [basis_folder2 ...]\n";
-        return 1;
     }
 
     // Инициализация конфигурации области (файл zones.json должен быть корректным)
