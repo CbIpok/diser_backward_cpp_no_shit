@@ -59,7 +59,7 @@ void calculate_statistics(const std::string& root_folder,
     int W = static_cast<int>(wave_sample[0][0].size());
     int n_basis = static_cast<int>(fk_sample.size());
 
-    constexpr std::size_t MAX_MEMORY_BYTES = 50ULL * 1024ULL * 1024ULL * 1024ULL; // 50 GB
+    constexpr std::size_t MAX_MEMORY_BYTES = 32ULL * 1024ULL * 1024ULL * 1024ULL; // 50 GB
     std::size_t bytes_per_row = static_cast<std::size_t>(n_basis + 1) * T * W * sizeof(double);
     int band_height = static_cast<int>(std::max<std::size_t>(1, MAX_MEMORY_BYTES / bytes_per_row));
 
