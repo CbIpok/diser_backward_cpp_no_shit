@@ -77,145 +77,57 @@ void calculate_statistics(const std::string& root_folder,
         if (bandH <= 0)
             continue;
 
-        // 2) параллельно по строкам блока на 24 потока
-        constexpr int THREADS = 48;
-        int rows_per_thread = std::max(1, (bandH + THREADS - 1) / THREADS);
-
-        // заранее режем загруженный блок на жирные диапазоны строк,
-        // чтобы каждый поток получил свою крупную порцию работы
-        std::vector<std::pair<int, int>> row_ranges;
-        row_ranges.reserve((bandH + rows_per_thread - 1) / rows_per_thread);
-        for (int start = 0; start < bandH; start += rows_per_thread) {
-            int end = std::min(start + rows_per_thread, bandH);
-            row_ranges.emplace_back(start, end);
-        }
-
-        const int total_width = std::max(1, maxX - minX + 1);
-        const unsigned hardware_threads = std::max(1u, std::thread::hardware_concurrency());
-        const int default_tile_width = 128;
-        const int min_preferred_tile_width = 64;
-        int tile_width = std::min(default_tile_width, total_width);
-        if (tile_width < min_preferred_tile_width && total_width >= min_preferred_tile_width) {
-            tile_width = min_preferred_tile_width;
-        }
-        std::size_t col_tiles = static_cast<std::size_t>((total_width + tile_width - 1) / tile_width);
-        if (col_tiles == 0) {
-            col_tiles = 1;
-            tile_width = total_width;
-        }
-        while (!row_ranges.empty() && row_ranges.size() * col_tiles < hardware_threads && tile_width > 1) {
-            int next_width = tile_width > min_preferred_tile_width
-                ? std::max(min_preferred_tile_width, tile_width / 2)
-                : std::max(tile_width / 2, 1);
-            if (next_width == tile_width) {
-                if (tile_width == 1) {
-                    break;
-                }
-                next_width = 1;
-            }
-            tile_width = next_width;
-            col_tiles = static_cast<std::size_t>((total_width + tile_width - 1) / tile_width);
-        }
-
-        std::vector<std::pair<int, int>> col_ranges;
-        col_ranges.reserve(col_tiles);
-        for (int start = minX; start <= maxX; start += tile_width) {
-            int end = std::min(start + tile_width, maxX + 1);
-            if (start < end) {
-                col_ranges.emplace_back(start, end);
-            }
-        }
-        if (col_ranges.empty()) {
-            col_ranges.emplace_back(minX, maxX + 1);
-        }
-
+        // 2) параллельно обрабатываем строки блока, деля их на шесть потоков
         CoeffMatrix band_results(bandH);
-        std::vector<std::vector<CoeffMatrix>> tile_results(row_ranges.size());
-        for (auto& row_tiles : tile_results) {
-            row_tiles.resize(col_ranges.size());
-        }
-        std::vector<std::future<void>> futs;
-        futs.reserve(row_ranges.size() * col_ranges.size());
+        constexpr int THREADS = 6;
+        int actual_threads = std::min(THREADS, std::max(1, bandH));
+        int rows_per_thread = (bandH + actual_threads - 1) / actual_threads;
 
-        for (std::size_t row_idx = 0; row_idx < row_ranges.size(); ++row_idx) {
-            int row_start = row_ranges[row_idx].first;
-            int row_end = row_ranges[row_idx].second;
+        std::vector<std::future<void>> futs;
+        futs.reserve(actual_threads);
+
+        for (int thread_idx = 0; thread_idx < actual_threads; ++thread_idx) {
+            int row_start = thread_idx * rows_per_thread;
+            int row_end = std::min(bandH, row_start + rows_per_thread);
             if (row_start >= row_end) {
                 continue;
             }
-            for (std::size_t col_idx = 0; col_idx < col_ranges.size(); ++col_idx) {
-                int col_start = col_ranges[col_idx].first;
-                int col_end = col_ranges[col_idx].second;
-                if (col_start >= col_end) {
-                    continue;
-                }
-                futs.emplace_back(std::async(std::launch::async, [&, row_idx, col_idx, row_start, row_end, col_start, col_end]() {
-                    CoeffMatrix local(row_end - row_start);
-                    for (int i = row_start; i < row_end; ++i) {
-                        std::vector<CoefficientData> row;
-                        auto tile_capacity = static_cast<std::size_t>(std::max(0, col_end - col_start));
-                        row.reserve(tile_capacity);
-                        for (int x = col_start; x < col_end; ++x) {
-                            Point2i pt{ x, minY + band_start + i };
-                            if (!bg::within(pt, area_config.mariogramm_poly))
-                                continue;
 
-                            Eigen::VectorXd wave_vec(T);
-                            for (int t = 0; t < T; ++t)
-                                wave_vec[t] = wave_data[t][i][x];
-
-                            Eigen::MatrixXd B(n_basis, T);
-                            for (int b = 0; b < n_basis; ++b)
-                                for (int t = 0; t < T; ++t)
-                                    B(b, t) = fk_data[b][t][i][x];
-
-                            auto coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
-                            Eigen::VectorXd approx = B.transpose() * coefs;
-                            double err = std::sqrt((wave_vec - approx).squaredNorm() / T);
-
-                            row.push_back({ pt, coefs, err });
+            futs.emplace_back(std::async(std::launch::async, [&, row_start, row_end]() {
+                for (int i = row_start; i < row_end; ++i) {
+                    std::vector<CoefficientData> row;
+                    row.reserve(static_cast<std::size_t>(std::max(0, maxX - minX + 1)));
+                    for (int x = minX; x <= maxX; ++x) {
+                        if (x < 0 || x >= W) {
+                            continue;
                         }
-                        local[i - row_start] = std::move(row);
+
+                        Point2i pt{ x, minY + band_start + i };
+                        if (!bg::within(pt, area_config.mariogramm_poly))
+                            continue;
+
+                        Eigen::VectorXd wave_vec(T);
+                        for (int t = 0; t < T; ++t)
+                            wave_vec[t] = wave_data[t][i][x];
+
+                        Eigen::MatrixXd B(n_basis, T);
+                        for (int b = 0; b < n_basis; ++b)
+                            for (int t = 0; t < T; ++t)
+                                B(b, t) = fk_data[b][t][i][x];
+
+                        auto coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
+                        Eigen::VectorXd approx = B.transpose() * coefs;
+                        double err = std::sqrt((wave_vec - approx).squaredNorm() / T);
+
+                        row.push_back({ pt, coefs, err });
                     }
-                    tile_results[row_idx][col_idx] = std::move(local);
-                }));
-            }
+                    band_results[i] = std::move(row);
+                }
+            }));
         }
 
         for (auto& f : futs) {
             f.get();
-        }
-
-        for (std::size_t row_idx = 0; row_idx < row_ranges.size(); ++row_idx) {
-            int row_start = row_ranges[row_idx].first;
-            int row_end = row_ranges[row_idx].second;
-            for (int i = row_start; i < row_end; ++i) {
-                std::size_t local_idx = static_cast<std::size_t>(i - row_start);
-                std::size_t total_row_size = 0;
-                for (std::size_t col_idx = 0; col_idx < col_ranges.size(); ++col_idx) {
-                    const auto& tile_row = tile_results[row_idx][col_idx];
-                    if (local_idx < tile_row.size()) {
-                        total_row_size += tile_row[local_idx].size();
-                    }
-                }
-                if (total_row_size == 0) {
-                    continue;
-                }
-
-                auto& dst_row = band_results[i];
-                dst_row.reserve(total_row_size);
-                for (std::size_t col_idx = 0; col_idx < col_ranges.size(); ++col_idx) {
-                    auto& tile_row = tile_results[row_idx][col_idx];
-                    if (local_idx >= tile_row.size()) {
-                        continue;
-                    }
-                    auto& segment = tile_row[local_idx];
-                    if (!segment.empty()) {
-                        std::move(segment.begin(), segment.end(), std::back_inserter(dst_row));
-                        segment.clear();
-                    }
-                }
-            }
         }
 
         for (auto& row : band_results) {
