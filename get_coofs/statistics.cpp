@@ -7,6 +7,7 @@
 #include <sstream>
 #include <future>
 #include <algorithm>
+#include <utility>
 #include "json.hpp"
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point.hpp>
@@ -59,7 +60,7 @@ void calculate_statistics(const std::string& root_folder,
     int W = static_cast<int>(wave_sample[0][0].size());
     int n_basis = static_cast<int>(fk_sample.size());
 
-    constexpr std::size_t MAX_MEMORY_BYTES = 40ULL * 1024ULL * 1024ULL * 1024ULL; // 50 GB
+    constexpr std::size_t MAX_MEMORY_BYTES = 45ULL * 1024ULL * 1024ULL * 1024ULL; // 50 GB
     std::size_t bytes_per_row = static_cast<std::size_t>(n_basis + 1) * T * W * sizeof(double);
     int band_height = static_cast<int>(std::max<std::size_t>(1, MAX_MEMORY_BYTES / bytes_per_row));
 
@@ -71,17 +72,29 @@ void calculate_statistics(const std::string& root_folder,
         if (fk_data.empty() || wave_data.empty()) continue;
 
         int bandH = band_end - band_start;
+        if (bandH <= 0)
+            continue;
 
         // 2) параллельно по строкам блока на 24 потока
-        constexpr int THREADS = 24;
-        int rows_per_thread = (bandH + THREADS - 1) / THREADS;
+        constexpr int THREADS = 48;
+        int rows_per_thread = std::max(1, (bandH + THREADS - 1) / THREADS);
+
+        // заранее режем загруженный блок на жирные диапазоны строк,
+        // чтобы каждый поток получил свою крупную порцию работы
+        std::vector<std::pair<int, int>> row_ranges;
+        row_ranges.reserve((bandH + rows_per_thread - 1) / rows_per_thread);
+        for (int start = 0; start < bandH; start += rows_per_thread) {
+            int end = std::min(start + rows_per_thread, bandH);
+            row_ranges.emplace_back(start, end);
+        }
+
         CoeffMatrix band_results(bandH);
         std::vector<std::future<void>> futs;
+        futs.reserve(row_ranges.size());
 
-        for (int t_id = 0; t_id < THREADS; ++t_id) {
-            int start = t_id * rows_per_thread;
-            if (start >= bandH) break;
-            int end = std::min(start + rows_per_thread, bandH);
+        for (const auto& range : row_ranges) {
+            int start = range.first;
+            int end = range.second;
             futs.push_back(std::async(std::launch::async, [&, start, end]() {
                 for (int i = start; i < end; ++i) {
                     std::vector<CoefficientData> row;

@@ -200,7 +200,6 @@ int main(int argc, char* argv[]) {
     std::string cache_folder = argv[2];
     std::string bath = argv[3];
     std::string wave = argv[4];
-
     std::vector<std::string> folderNames;
     for (int i = 5; i < argc; ++i) {
         folderNames.emplace_back(argv[i]);
