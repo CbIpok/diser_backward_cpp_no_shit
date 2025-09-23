@@ -60,7 +60,7 @@ void calculate_statistics(const std::string& root_folder,
     int W = static_cast<int>(wave_sample[0][0].size());
     int n_basis = static_cast<int>(fk_sample.size());
 
-    constexpr std::size_t MAX_MEMORY_BYTES = 40ULL * 1024ULL * 1024ULL * 1024ULL; // 50 GB
+    constexpr std::size_t MAX_MEMORY_BYTES = 45ULL * 1024ULL * 1024ULL * 1024ULL; // 50 GB
     std::size_t bytes_per_row = static_cast<std::size_t>(n_basis + 1) * T * W * sizeof(double);
     int band_height = static_cast<int>(std::max<std::size_t>(1, MAX_MEMORY_BYTES / bytes_per_row));
 
@@ -76,7 +76,7 @@ void calculate_statistics(const std::string& root_folder,
             continue;
 
         // 2) параллельно по строкам блока на 24 потока
-        constexpr int THREADS = 24;
+        constexpr int THREADS = 48;
         int rows_per_thread = std::max(1, (bandH + THREADS - 1) / THREADS);
 
         // заранее режем загруженный блок на жирные диапазоны строк,
