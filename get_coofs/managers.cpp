@@ -66,7 +66,6 @@ bool inquire_nc_dimensions(const std::string& filename, size_t& T, size_t& Y, si
 }
 std::vector<std::vector<std::vector<double>>> read_nc_file(const fs::path& file, int y_start, int y_end) {
     std::vector<std::vector<std::vector<double>>> data;
-    std::cout << "loading: " << file << std::endl;
     int ncid;
 
     if (open_nc_file(file.string(), ncid) != NC_NOERR)
@@ -104,14 +103,17 @@ std::vector<std::vector<std::vector<double>>> read_nc_file(const fs::path& file,
     size_t start[3] = { 0, static_cast<size_t>(y_start), 0 };
     size_t count[3] = { T, region_height, X };
     std::vector<double> buffer(T * region_height * X, 0.0);
-    std::cout << "start\n";
+    std::cout << "Loading rows [" << y_start << ", " << local_y_end << ") ("
+              << region_height << " rows) x " << X << " columns across " << T
+              << " time steps from " << file << std::endl;
     retval = nc_get_vara_double(ncid, varid, start, count, buffer.data());
-    std::cout << "end\n";
     if (retval != NC_NOERR) {
         std::cerr << "Failed to read variable data from " << file.string() << " : " << nc_strerror(retval) << std::endl;
         nc_close(ncid);
         return data;
     }
+    std::cout << "Completed region load from " << file << std::endl;
+
     nc_close(ncid);
 
 
@@ -191,12 +193,18 @@ std::vector<std::vector<double>> read_nc_points(const fs::path& file,
     size_t start[3] = { 0, static_cast<size_t>(min_y), static_cast<size_t>(min_x) };
     size_t count[3] = { static_cast<size_t>(T), height, width };
 
+    std::cout << "Loading " << points.size() << " points spanning bounding box ["
+              << min_x << ", " << min_y << "] to [" << max_x << ", " << max_y
+              << "] across " << T << " time steps from " << file << std::endl;
+
     retval = nc_get_vara_double(ncid, varid, start, count, buffer.data());
     if (retval != NC_NOERR) {
         std::cerr << "Failed to read variable data from " << file.string() << " : " << nc_strerror(retval) << std::endl;
         nc_close(ncid);
         return {};
     }
+
+    std::cout << "Completed point load from " << file << std::endl;
 
     nc_close(ncid);
 
