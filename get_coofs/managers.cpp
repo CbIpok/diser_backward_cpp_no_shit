@@ -12,7 +12,7 @@ namespace fs = std::filesystem;
 int open_nc_file(const std::string& filename, int& ncid) {
     int retval = nc_open(filename.c_str(), NC_NOWRITE, &ncid);
     if (retval != NC_NOERR) {
-        std::cerr << "������ �������� ����� " << filename << " : " << nc_strerror(retval) << std::endl;
+        std::cerr << "Failed to open file " << filename << " : " << nc_strerror(retval) << std::endl;
     }
     return retval;
 }
@@ -26,7 +26,7 @@ bool inquire_nc_dimensions(const std::string& filename, size_t& T, size_t& Y, si
     int varid;
     int retval = nc_inq_varid(ncid, "height", &varid);
     if (retval != NC_NOERR) {
-        std::cerr << "���������� 'height' �� ������� � " << filename << std::endl;
+        std::cerr << "Variable 'height' is missing in " << filename << std::endl;
         nc_close(ncid);
         return false;
     }
@@ -34,7 +34,7 @@ bool inquire_nc_dimensions(const std::string& filename, size_t& T, size_t& Y, si
     int ndims = 0;
     retval = nc_inq_varndims(ncid, varid, &ndims);
     if (retval != NC_NOERR || ndims != 3) {
-        std::cerr << "��������� 3 ��������� � ����� " << filename << std::endl;
+        std::cerr << "Expected variable 'height' to have 3 dimensions in " << filename << std::endl;
         nc_close(ncid);
         return false;
     }
@@ -42,7 +42,7 @@ bool inquire_nc_dimensions(const std::string& filename, size_t& T, size_t& Y, si
     int dimids[3] = { 0, 0, 0 };
     retval = nc_inq_vardimid(ncid, varid, dimids);
     if (retval != NC_NOERR) {
-        std::cerr << "������ ������� ���������� � ����� " << filename << " : " << nc_strerror(retval) << std::endl;
+        std::cerr << "Failed to query dimension identifiers in " << filename << " : " << nc_strerror(retval) << std::endl;
         nc_close(ncid);
         return false;
     }
@@ -51,7 +51,7 @@ bool inquire_nc_dimensions(const std::string& filename, size_t& T, size_t& Y, si
     for (int i = 0; i < 3; ++i) {
         retval = nc_inq_dimlen(ncid, dimids[i], &dims[i]);
         if (retval != NC_NOERR) {
-            std::cerr << "������ ������ ��������� � ����� " << filename << " : " << nc_strerror(retval) << std::endl;
+            std::cerr << "Failed to query dimension length in " << filename << " : " << nc_strerror(retval) << std::endl;
             nc_close(ncid);
             return false;
         }
@@ -75,7 +75,7 @@ std::vector<std::vector<std::vector<double>>> read_nc_file(const fs::path& file,
     int varid;
     int retval = nc_inq_varid(ncid, "height", &varid);
     if (retval != NC_NOERR) {
-        std::cerr << "���������� 'height' �� ������� � " << file.string() << std::endl;
+        std::cerr << "Variable 'height' is missing in " << file.string() << std::endl;
         nc_close(ncid);
         return data;
     }
@@ -83,7 +83,7 @@ std::vector<std::vector<std::vector<double>>> read_nc_file(const fs::path& file,
     int ndims;
     nc_inq_varndims(ncid, varid, &ndims);
     if (ndims != 3) {
-        std::cerr << "��������� 3 ��������� � ����� " << file.string() << std::endl;
+        std::cerr << "Expected variable 'height' to have 3 dimensions in " << file.string() << std::endl;
         nc_close(ncid);
         return data;
     }
@@ -108,7 +108,7 @@ std::vector<std::vector<std::vector<double>>> read_nc_file(const fs::path& file,
     retval = nc_get_vara_double(ncid, varid, start, count, buffer.data());
     std::cout << "end\n";
     if (retval != NC_NOERR) {
-        std::cerr << "������ ������ ����� " << file.string() << " : " << nc_strerror(retval) << std::endl;
+        std::cerr << "Failed to read variable data from " << file.string() << " : " << nc_strerror(retval) << std::endl;
         nc_close(ncid);
         return data;
     }
@@ -183,7 +183,7 @@ std::vector<std::vector<double>> read_nc_points(const fs::path& file,
     int varid;
     int retval = nc_inq_varid(ncid, "height", &varid);
     if (retval != NC_NOERR) {
-        std::cerr << "���������� 'height' �� ������� � " << file.string() << std::endl;
+        std::cerr << "Variable 'height' is missing in " << file.string() << std::endl;
         nc_close(ncid);
         return {};
     }
@@ -193,7 +193,7 @@ std::vector<std::vector<double>> read_nc_points(const fs::path& file,
 
     retval = nc_get_vara_double(ncid, varid, start, count, buffer.data());
     if (retval != NC_NOERR) {
-        std::cerr << "������ ������ ����� " << file.string() << " : " << nc_strerror(retval) << std::endl;
+        std::cerr << "Failed to read variable data from " << file.string() << " : " << nc_strerror(retval) << std::endl;
         nc_close(ncid);
         return {};
     }
