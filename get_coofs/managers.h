@@ -16,6 +16,11 @@ public:
     std::vector<std::vector<std::vector<std::vector<double>>>> get_fk_region(int y_start, int y_end);
     std::size_t basis_count() const;
     bool get_dimensions(std::size_t& T, std::size_t& Y, std::size_t& X) const;
+    std::vector<std::vector<std::vector<double>>> get_fk_points(
+        const std::vector<Point2i>& points,
+        int T,
+        int data_height,
+        int data_width) const;
 };
 
 class WaveManager {
@@ -26,6 +31,11 @@ public:
 
     std::vector<std::vector<std::vector<double>>> load_mariogramm_by_region(int y_start, int y_end);
     bool get_dimensions(std::size_t& T, std::size_t& Y, std::size_t& X) const;
+    std::vector<std::vector<double>> load_mariogramm_points(
+        const std::vector<Point2i>& points,
+        int T,
+        int data_height,
+        int data_width) const;
 };
 
 #endif // MANAGERS_H

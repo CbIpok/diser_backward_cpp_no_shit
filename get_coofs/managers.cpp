@@ -127,9 +127,114 @@ std::vector<std::vector<std::vector<double>>> read_nc_file(const fs::path& file,
 }
 
 
+std::vector<std::vector<double>> read_nc_points(const fs::path& file,
+    const std::vector<Point2i>& points,
+    int T,
+    int data_height,
+    int data_width)
+{
+    std::vector<std::vector<double>> data;
+    if (points.empty() || T <= 0 || data_height <= 0 || data_width <= 0) {
+        return data;
+    }
+
+    int min_x = data_width;
+    int max_x = -1;
+    int min_y = data_height;
+    int max_y = -1;
+
+    for (const auto& pt : points) {
+        int x = bg::get<0>(pt);
+        int y = bg::get<1>(pt);
+        min_x = std::min(min_x, x);
+        max_x = std::max(max_x, x);
+        min_y = std::min(min_y, y);
+        max_y = std::max(max_y, y);
+    }
+
+    if (max_x < min_x || max_y < min_y) {
+        return data;
+    }
+
+    min_x = std::max(0, min_x);
+    max_x = std::min(max_x, data_width - 1);
+    min_y = std::max(0, min_y);
+    max_y = std::min(max_y, data_height - 1);
+
+    if (max_x < min_x || max_y < min_y) {
+        return data;
+    }
+
+    std::size_t width = static_cast<std::size_t>(max_x - min_x + 1);
+    std::size_t height = static_cast<std::size_t>(max_y - min_y + 1);
+    std::size_t plane = width * height;
+
+    if (plane == 0) {
+        return data;
+    }
+
+    std::vector<double> buffer(static_cast<std::size_t>(T) * plane, 0.0);
+
+    int ncid;
+    if (open_nc_file(file.string(), ncid) != NC_NOERR) {
+        return data;
+    }
+
+    int varid;
+    int retval = nc_inq_varid(ncid, "height", &varid);
+    if (retval != NC_NOERR) {
+        std::cerr << "���������� 'height' �� ������� � " << file.string() << std::endl;
+        nc_close(ncid);
+        return {};
+    }
+
+    size_t start[3] = { 0, static_cast<size_t>(min_y), static_cast<size_t>(min_x) };
+    size_t count[3] = { static_cast<size_t>(T), height, width };
+
+    retval = nc_get_vara_double(ncid, varid, start, count, buffer.data());
+    if (retval != NC_NOERR) {
+        std::cerr << "������ ������ ����� " << file.string() << " : " << nc_strerror(retval) << std::endl;
+        nc_close(ncid);
+        return {};
+    }
+
+    nc_close(ncid);
+
+    data.assign(points.size(), std::vector<double>(static_cast<std::size_t>(T), 0.0));
+
+    for (std::size_t idx = 0; idx < points.size(); ++idx) {
+        int x = bg::get<0>(points[idx]);
+        int y = bg::get<1>(points[idx]);
+        if (x < min_x || x > max_x || y < min_y || y > max_y) {
+            continue;
+        }
+
+        std::size_t local_x = static_cast<std::size_t>(x - min_x);
+        std::size_t local_y = static_cast<std::size_t>(y - min_y);
+        std::size_t base = local_y * width + local_x;
+
+        for (int t = 0; t < T; ++t) {
+            data[idx][static_cast<std::size_t>(t)] =
+                buffer[static_cast<std::size_t>(t) * plane + base];
+        }
+    }
+
+    return data;
+}
+
+
 std::vector<std::vector<std::vector<double>>> WaveManager::load_mariogramm_by_region(int y_start, int y_end) {
 
     return read_nc_file(nc_file, y_start, y_end);
+}
+
+std::vector<std::vector<double>> WaveManager::load_mariogramm_points(
+    const std::vector<Point2i>& points,
+    int T,
+    int data_height,
+    int data_width) const
+{
+    return read_nc_points(nc_file, points, T, data_height, data_width);
 }
 
 bool WaveManager::get_dimensions(std::size_t& T, std::size_t& Y, std::size_t& X) const {
@@ -199,4 +304,23 @@ bool BasisManager::get_dimensions(std::size_t& T, std::size_t& Y, std::size_t& X
         return false;
     }
     return inquire_nc_dimensions(files.front().string(), T, Y, X);
+}
+
+std::vector<std::vector<std::vector<double>>> BasisManager::get_fk_points(
+    const std::vector<Point2i>& points,
+    int T,
+    int data_height,
+    int data_width) const
+{
+    std::vector<std::vector<std::vector<double>>> fk;
+    if (points.empty() || T <= 0 || data_height <= 0 || data_width <= 0) {
+        return fk;
+    }
+
+    auto files = getSortedFileList(folder);
+    fk.reserve(files.size());
+    for (const auto& file : files) {
+        fk.push_back(read_nc_points(file, points, T, data_height, data_width));
+    }
+    return fk;
 }

@@ -33,6 +33,7 @@ int count_from_name(const std::string& name) {
     return 0;
 }
 
+
 void calculate_statistics(const std::string& root_folder,
     const std::string& bath,
     const std::string& wave,
@@ -54,13 +55,28 @@ void calculate_statistics(const std::string& root_folder,
 
     std::size_t wave_T = 0, wave_Y = 0, wave_X = 0;
     if (!wave_manager.get_dimensions(wave_T, wave_Y, wave_X)) {
-        std::cerr << "failed to query wave dimensions for " << wave_manager.nc_file << "\n";
+        std::cerr << "failed to query wave dimensions for " << wave_manager.nc_file << "
+";
+        return;
+    }
+
+    std::size_t basis_T = 0, basis_Y = 0, basis_X = 0;
+    if (!basis_manager.get_dimensions(basis_T, basis_Y, basis_X)) {
+        std::cerr << "failed to query basis dimensions for " << basis_manager.folder << "
+";
+        return;
+    }
+
+    if (basis_T != wave_T || basis_Y != wave_Y || basis_X != wave_X) {
+        std::cerr << "basis dataset dimensions do not match wave dataset
+";
         return;
     }
 
     std::size_t basis_count = basis_manager.basis_count();
     if (basis_count == 0) {
-        std::cerr << "no basis files found in " << basis_manager.folder << "\n";
+        std::cerr << "no basis files found in " << basis_manager.folder << "
+";
         return;
     }
 
@@ -70,170 +86,156 @@ void calculate_statistics(const std::string& root_folder,
     int n_basis = static_cast<int>(basis_count);
 
     if (T <= 0 || W <= 0 || data_height <= 0) {
-        std::cerr << "invalid data dimensions\n";
+        std::cerr << "invalid data dimensions
+";
         return;
     }
 
     minX = std::max(0, minX);
     maxX = std::min(maxX, W - 1);
     minY = std::max(0, minY);
-    maxY = std::min(maxY, data_height);
-    if (minX > maxX || minY >= maxY) {
-        std::cerr << "polygon bounds do not intersect data domain\n";
+    maxY = std::min(maxY, data_height - 1);
+    if (minX > maxX || minY > maxY) {
+        std::cerr << "polygon bounds do not intersect data domain
+";
         return;
     }
 
-    int H = maxY - minY;
-    if (H <= 0) {
-        return;
-    }
+    std::vector<Point2i> points;
+    points.reserve(static_cast<std::size_t>(maxY - minY + 1)
+        * static_cast<std::size_t>(maxX - minX + 1));
 
-    constexpr std::size_t MAX_MEMORY_BYTES = 45ULL * 1024ULL * 1024ULL * 1024ULL; // 50 GB
-    std::size_t bytes_per_row = static_cast<std::size_t>(n_basis + 1)
-        * static_cast<std::size_t>(T) * static_cast<std::size_t>(W) * sizeof(double);
-    std::size_t rows_per_band = bytes_per_row > 0 ? MAX_MEMORY_BYTES / bytes_per_row : 0;
-    if (rows_per_band == 0) {
-        rows_per_band = 1;
-    }
-    if (rows_per_band > static_cast<std::size_t>(H)) {
-        rows_per_band = static_cast<std::size_t>(H);
-    }
-    int band_height = static_cast<int>(std::min<std::size_t>(rows_per_band,
-        static_cast<std::size_t>(std::numeric_limits<int>::max())));
-    band_height = std::max(1, band_height);
-
-    struct ProcessPoint {
-        int local_row;
-        int x;
-    };
-
-    for (int band_start = 0; band_start < H; band_start += band_height) {
-        int band_end = std::min(H, band_start + band_height);
-
-        auto fk_data = basis_manager.get_fk_region(minY + band_start, minY + band_end);
-        auto wave_data = wave_manager.load_mariogramm_by_region(minY + band_start, minY + band_end);
-        if (fk_data.empty() || wave_data.empty()) {
-            continue;
-        }
-
-        int bandH = band_end - band_start;
-        if (bandH <= 0) {
-            continue;
-        }
-
-        std::vector<ProcessPoint> band_points;
-        std::size_t width_range = static_cast<std::size_t>(std::max(0, maxX - minX + 1));
-        band_points.reserve(static_cast<std::size_t>(bandH) * width_range);
-        std::vector<std::size_t> row_point_counts(static_cast<std::size_t>(bandH), 0);
-
-        for (int local_row = 0; local_row < bandH; ++local_row) {
-            int global_y = minY + band_start + local_row;
-            for (int x = minX; x <= maxX; ++x) {
-                if (x < 0 || x >= W) {
-                    continue;
-                }
-                Point2i pt(x, global_y);
-                if (!bg::within(pt, area_config.mariogramm_poly)) {
-                    continue;
-                }
-                band_points.push_back({ local_row, x });
-                ++row_point_counts[static_cast<std::size_t>(local_row)];
+    for (int y = minY; y <= maxY; ++y) {
+        for (int x = minX; x <= maxX; ++x) {
+            Point2i pt(x, y);
+            if (bg::within(pt, area_config.mariogramm_poly)) {
+                points.emplace_back(pt);
             }
         }
+    }
 
-        if (band_points.empty()) {
+    if (points.empty()) {
+        return;
+    }
+
+    constexpr std::size_t MAX_MEMORY_BYTES = 45ULL * 1024ULL * 1024ULL * 1024ULL; // 45 GB
+    std::size_t bytes_per_point = static_cast<std::size_t>(n_basis + 1)
+        * static_cast<std::size_t>(T) * sizeof(double);
+
+    std::size_t points_per_chunk = bytes_per_point > 0 ? MAX_MEMORY_BYTES / bytes_per_point : 0;
+    if (points_per_chunk == 0) {
+        points_per_chunk = 1;
+    }
+
+    std::size_t total_points = points.size();
+
+    for (std::size_t chunk_start = 0; chunk_start < total_points; chunk_start += points_per_chunk) {
+        std::size_t chunk_end = std::min(total_points, chunk_start + points_per_chunk);
+        std::vector<Point2i> chunk_points(points.begin() + chunk_start, points.begin() + chunk_end);
+
+        auto wave_data = wave_manager.load_mariogramm_points(chunk_points, T, data_height, W);
+        auto fk_data = basis_manager.get_fk_points(chunk_points, T, data_height, W);
+
+        if (wave_data.size() != chunk_points.size()) {
+            continue;
+        }
+
+        bool fk_valid = fk_data.size() == static_cast<std::size_t>(n_basis);
+        if (fk_valid) {
+            for (const auto& basis_points : fk_data) {
+                if (basis_points.size() != chunk_points.size()) {
+                    fk_valid = false;
+                    break;
+                }
+            }
+        }
+        if (!fk_valid) {
+            continue;
+        }
+
+        std::size_t chunk_size = chunk_points.size();
+        if (chunk_size == 0) {
             continue;
         }
 
         constexpr int THREADS = 48;
-        int thread_count = std::min<int>(THREADS, static_cast<int>(band_points.size()));
+        int thread_count = std::min<int>(THREADS, static_cast<int>(chunk_size));
         if (thread_count <= 0) {
             continue;
         }
 
-        std::size_t chunk_size = (band_points.size() + static_cast<std::size_t>(thread_count) - 1)
+        std::size_t points_per_thread = (chunk_size + static_cast<std::size_t>(thread_count) - 1)
             / static_cast<std::size_t>(thread_count);
 
-        CoeffMatrix band_results(bandH);
-        for (int row = 0; row < bandH; ++row) {
-            band_results[row].reserve(row_point_counts[static_cast<std::size_t>(row)]);
-        }
-
-        std::vector<CoeffMatrix> thread_local_results(static_cast<std::size_t>(thread_count), CoeffMatrix(bandH));
-        std::vector<std::future<void>> futs;
-        futs.reserve(thread_count);
+        std::vector<std::vector<CoefficientData>> thread_local_results(static_cast<std::size_t>(thread_count));
+        std::vector<std::future<void>> futures;
+        futures.reserve(thread_count);
 
         for (int thread_idx = 0; thread_idx < thread_count; ++thread_idx) {
-            std::size_t start_idx = static_cast<std::size_t>(thread_idx) * chunk_size;
-            if (start_idx >= band_points.size()) {
+            std::size_t start_idx = static_cast<std::size_t>(thread_idx) * points_per_thread;
+            if (start_idx >= chunk_size) {
                 break;
             }
-            std::size_t end_idx = std::min(band_points.size(), start_idx + chunk_size);
+            std::size_t end_idx = std::min(chunk_size, start_idx + points_per_thread);
 
-            futs.emplace_back(std::async(std::launch::async,
+            futures.emplace_back(std::async(std::launch::async,
                 [&, thread_idx, start_idx, end_idx]() {
                     auto& local = thread_local_results[static_cast<std::size_t>(thread_idx)];
-                    std::vector<std::size_t> local_counts(static_cast<std::size_t>(bandH), 0);
-
-                    for (std::size_t idx = start_idx; idx < end_idx; ++idx) {
-                        ++local_counts[static_cast<std::size_t>(band_points[idx].local_row)];
-                    }
-
-                    for (int row = 0; row < bandH; ++row) {
-                        std::size_t count = local_counts[static_cast<std::size_t>(row)];
-                        if (count > 0) {
-                            local[row].reserve(count);
-                        }
-                    }
+                    local.reserve(end_idx - start_idx);
 
                     Eigen::VectorXd wave_vec(T);
                     Eigen::MatrixXd B(n_basis, T);
 
                     for (std::size_t idx = start_idx; idx < end_idx; ++idx) {
-                        int local_row = band_points[idx].local_row;
-                        int x = band_points[idx].x;
-                        int global_y = minY + band_start + local_row;
+                        const auto& wave_series = wave_data[idx];
+                        if (wave_series.size() != static_cast<std::size_t>(T)) {
+                            continue;
+                        }
+
+                        bool basis_ok = true;
+                        for (int b = 0; b < n_basis; ++b) {
+                            const auto& basis_series = fk_data[static_cast<std::size_t>(b)][idx];
+                            if (basis_series.size() != static_cast<std::size_t>(T)) {
+                                basis_ok = false;
+                                break;
+                            }
+                            for (int t = 0; t < T; ++t) {
+                                B(b, t) = basis_series[static_cast<std::size_t>(t)];
+                            }
+                        }
+                        if (!basis_ok) {
+                            continue;
+                        }
 
                         for (int t = 0; t < T; ++t) {
-                            wave_vec[t] = wave_data[t][local_row][x];
-                        }
-                        for (int b = 0; b < n_basis; ++b) {
-                            for (int t = 0; t < T; ++t) {
-                                B(b, t) = fk_data[b][t][local_row][x];
-                            }
+                            wave_vec[t] = wave_series[static_cast<std::size_t>(t)];
                         }
 
                         auto coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
                         Eigen::VectorXd approx = B.transpose() * coefs;
                         double err = std::sqrt((wave_vec - approx).squaredNorm() / T);
 
-                        local[local_row].push_back({ Point2i(x, global_y), coefs, err });
+                        local.push_back({ chunk_points[idx], coefs, err });
                     }
                 }));
         }
 
-        for (auto& f : futs) {
+        for (auto& f : futures) {
             f.get();
         }
 
-        for (int row = 0; row < bandH; ++row) {
-            auto& dst_row = band_results[row];
-            for (auto& local_matrix : thread_local_results) {
-                auto& src_row = local_matrix[row];
-                if (!src_row.empty()) {
-                    std::move(src_row.begin(), src_row.end(), std::back_inserter(dst_row));
-                    src_row.clear();
-                }
-            }
+        std::vector<CoefficientData> chunk_result;
+        chunk_result.reserve(chunk_size);
+        for (auto& local : thread_local_results) {
+            std::move(local.begin(), local.end(), std::back_inserter(chunk_result));
         }
 
-        for (auto& row : band_results) {
-            if (!row.empty()) {
-                statistics_orto.push_back(std::move(row));
-            }
+        if (!chunk_result.empty()) {
+            statistics_orto.push_back(std::move(chunk_result));
         }
     }
 }
+
 void save_coefficients_json(const std::string& filename, const CoeffMatrix& coeffs) {
     nlohmann::json j;
     for (size_t row = 0; row < coeffs.size(); ++row) {
