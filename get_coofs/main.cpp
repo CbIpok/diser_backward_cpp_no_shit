@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <filesystem>
+#include <chrono>
 #include <Eigen/Dense>
 #include "approx_orto.h"
 #include "stable_data_structs.h"
@@ -196,6 +197,8 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    auto program_start = std::chrono::steady_clock::now();
+
     std::string root_folder = argv[1];
     std::string cache_folder = argv[2];
     std::string bath = argv[3];
@@ -221,6 +224,10 @@ int main(int argc, char* argv[]) {
     {
         runWithPrePost(root_folder, cache_folder, bath, wave, basis, area_config);
     }
+
+    auto program_end = std::chrono::steady_clock::now();
+    auto elapsed_seconds = std::chrono::duration<double>(program_end - program_start);
+    std::cout << "Program completed in " << elapsed_seconds.count() << " seconds" << std::endl;
     return 0;
 }
 #endif

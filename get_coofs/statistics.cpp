@@ -11,6 +11,7 @@
 #include <utility>
 #include <thread>
 #include <iterator>
+#include <chrono>
 #include "json.hpp"
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point.hpp>
@@ -127,8 +128,13 @@ void calculate_statistics(const std::string& root_folder,
         std::size_t chunk_end = std::min(total_points, chunk_start + points_per_chunk);
         std::vector<Point2i> chunk_points(points.begin() + chunk_start, points.begin() + chunk_end);
 
+        auto load_start = std::chrono::steady_clock::now();
         auto wave_data = wave_manager.load_mariogramm_points(chunk_points, T, data_height, W);
         auto fk_data = basis_manager.get_fk_points(chunk_points, T, data_height, W);
+        auto load_end = std::chrono::steady_clock::now();
+        auto load_seconds = std::chrono::duration<double>(load_end - load_start);
+        std::cout << "Data load cycle for " << chunk_points.size()
+                  << " points took " << load_seconds.count() << " seconds" << std::endl;
 
         if (wave_data.size() != chunk_points.size()) {
             continue;
