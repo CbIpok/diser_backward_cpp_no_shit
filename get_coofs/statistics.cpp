@@ -55,28 +55,24 @@ void calculate_statistics(const std::string& root_folder,
 
     std::size_t wave_T = 0, wave_Y = 0, wave_X = 0;
     if (!wave_manager.get_dimensions(wave_T, wave_Y, wave_X)) {
-        std::cerr << "failed to query wave dimensions for " << wave_manager.nc_file << "
-";
+        std::cerr << "failed to query wave dimensions for " << wave_manager.nc_file << '\n';
         return;
     }
 
     std::size_t basis_T = 0, basis_Y = 0, basis_X = 0;
     if (!basis_manager.get_dimensions(basis_T, basis_Y, basis_X)) {
-        std::cerr << "failed to query basis dimensions for " << basis_manager.folder << "
-";
+        std::cerr << "failed to query basis dimensions for " << basis_manager.folder << '\n';
         return;
     }
 
     if (basis_T != wave_T || basis_Y != wave_Y || basis_X != wave_X) {
-        std::cerr << "basis dataset dimensions do not match wave dataset
-";
+        std::cerr << "basis dataset dimensions do not match wave dataset" << '\n';
         return;
     }
 
     std::size_t basis_count = basis_manager.basis_count();
     if (basis_count == 0) {
-        std::cerr << "no basis files found in " << basis_manager.folder << "
-";
+        std::cerr << "no basis files found in " << basis_manager.folder << '\n';
         return;
     }
 
@@ -86,8 +82,7 @@ void calculate_statistics(const std::string& root_folder,
     int n_basis = static_cast<int>(basis_count);
 
     if (T <= 0 || W <= 0 || data_height <= 0) {
-        std::cerr << "invalid data dimensions
-";
+        std::cerr << "invalid data dimensions" << '\n';
         return;
     }
 
@@ -96,8 +91,7 @@ void calculate_statistics(const std::string& root_folder,
     minY = std::max(0, minY);
     maxY = std::min(maxY, data_height - 1);
     if (minX > maxX || minY > maxY) {
-        std::cerr << "polygon bounds do not intersect data domain
-";
+        std::cerr << "polygon bounds do not intersect data domain" << '\n';
         return;
     }
 
