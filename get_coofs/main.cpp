@@ -5,7 +5,7 @@
 #include "approx_orto.h"
 #include "stable_data_structs.h"
 #include "statistics.h"
-#include <opencv2/highgui.hpp>    // для imshow, namedWindow, waitKey
+#include <opencv2/highgui.hpp>    // for imshow, namedWindow, waitKey
 #include <opencv2/imgcodecs.hpp> 
 
 namespace fs = std::filesystem;
@@ -21,7 +21,7 @@ bool copyFolder(const std::string& source, const std::string& destination) {
         }
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "Ошибка копирования папки: " << e.what() << std::endl;
+        std::cerr << "Failed to copy folder: " << e.what() << std::endl;
         return false;
     }
     return true;
@@ -32,7 +32,7 @@ bool deleteFolder(const std::string& folder) {
         fs::remove_all(folder);
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "Ошибка удаления папки: " << e.what() << std::endl;
+        std::cerr << "Failed to delete folder: " << e.what() << std::endl;
         return false;
     }
     return true;
@@ -45,7 +45,7 @@ bool copyFile(const std::string& source, const std::string& destination) {
         fs::copy_file(source, destination, fs::copy_options::overwrite_existing);
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "Ошибка копирования файла: " << e.what() << std::endl;
+        std::cerr << "Failed to copy file: " << e.what() << std::endl;
         return false;
     }
     return true;
@@ -57,7 +57,7 @@ bool deleteFile(const std::string& file) {
         fs::remove(file);
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "Ошибка удаления файла: " << e.what() << std::endl;
+        std::cerr << "Failed to delete file: " << e.what() << std::endl;
         return false;
     }
     return true;
@@ -86,12 +86,12 @@ int runWithPrePost(const std::string& root_folder,
     if (shouldCopy) {
         copiedFolder = copyFolder(sourceBasisFolder, destBasisFolder);
         if (!copiedFolder) {
-            std::cerr << "Не удалось скопировать папку: " << sourceBasisFolder << std::endl;
+            std::cerr << "Unable to copy folder: " << sourceBasisFolder << std::endl;
             return -1;
         }
     }
     else if (!fs::exists(destBasisFolder)) {
-        std::cerr << "Папка не найдена: " << destBasisFolder << std::endl;
+        std::cerr << "Folder not found: " << destBasisFolder << std::endl;
         return -1;
     }
 
@@ -105,7 +105,7 @@ int runWithPrePost(const std::string& root_folder,
         if (!fileAlreadyExists && fs::exists(sourceWaveFile)) {
             copiedFile = copyFile(sourceWaveFile, destWaveFile);
             if (!copiedFile) {
-                std::cerr << "Не удалось скопировать файл: " << sourceWaveFile << std::endl;
+                std::cerr << "Unable to copy file: " << sourceWaveFile << std::endl;
 
                 if (copiedFolder) {
                     deleteFolder(destBasisFolder);
@@ -115,7 +115,7 @@ int runWithPrePost(const std::string& root_folder,
         }
     }
     else if (!fileExists(destWaveFile)) {
-        std::cerr << "Файл не найден: " << destWaveFile << std::endl;
+        std::cerr << "File not found: " << destWaveFile << std::endl;
         return -1;
     }
 
@@ -123,13 +123,13 @@ int runWithPrePost(const std::string& root_folder,
 
     if (shouldCopy && copiedFolder) {
         if (!deleteFolder(destBasisFolder)) {
-            std::cerr << "Не удалось удалить папку: " << destBasisFolder << std::endl;
+            std::cerr << "Failed to delete folder: " << destBasisFolder << std::endl;
         }
     }
 
     if (shouldCopy && copiedFile) {
         if (!deleteFile(destWaveFile)) {
-            std::cerr << "Не удалось удалить файл: " << destWaveFile << std::endl;
+            std::cerr << "Failed to delete file: " << destWaveFile << std::endl;
         }
     }
 
@@ -205,14 +205,14 @@ int main(int argc, char* argv[]) {
         folderNames.emplace_back(argv[i]);
     }
 
-    // Инициализация конфигурации области (файл zones.json должен быть корректным)
+    // Initialize the area configuration (zones.json must be valid)
     AreaConfigurationInfo area_config("T:/tsunami_res_folder/info/zones_new.json");
     //cv::Mat img(area_config.height, area_config.width, CV_8UC3, cv::Scalar(0, 0, 0));
 
-    //// 3. Рисуем границу полигона
-    //area_config.draw(img, /*цвет BGR*/ cv::Scalar(0, 255, 0), /*толщина*/ 2);
+    //// Draw the polygon boundary
+    //area_config.draw(img, /*BGR color*/ cv::Scalar(0, 255, 0), /*thickness*/ 2);
 
-    //// 4. Показываем результат
+    //// Show the result
     //cv::namedWindow("Mariogramm Area", cv::WINDOW_NORMAL);
     //cv::imshow("Mariogramm Area", img);
     //cv::waitKey(0);
