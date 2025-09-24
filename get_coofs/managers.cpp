@@ -16,6 +16,54 @@ int open_nc_file(const std::string& filename, int& ncid) {
     }
     return retval;
 }
+
+bool inquire_nc_dimensions(const std::string& filename, size_t& T, size_t& Y, size_t& X) {
+    int ncid;
+    if (open_nc_file(filename, ncid) != NC_NOERR) {
+        return false;
+    }
+
+    int varid;
+    int retval = nc_inq_varid(ncid, "height", &varid);
+    if (retval != NC_NOERR) {
+        std::cerr << "���������� 'height' �� ������� � " << filename << std::endl;
+        nc_close(ncid);
+        return false;
+    }
+
+    int ndims = 0;
+    retval = nc_inq_varndims(ncid, varid, &ndims);
+    if (retval != NC_NOERR || ndims != 3) {
+        std::cerr << "��������� 3 ��������� � ����� " << filename << std::endl;
+        nc_close(ncid);
+        return false;
+    }
+
+    int dimids[3] = { 0, 0, 0 };
+    retval = nc_inq_vardimid(ncid, varid, dimids);
+    if (retval != NC_NOERR) {
+        std::cerr << "������ ������� ���������� � ����� " << filename << " : " << nc_strerror(retval) << std::endl;
+        nc_close(ncid);
+        return false;
+    }
+
+    size_t dims[3] = { 0, 0, 0 };
+    for (int i = 0; i < 3; ++i) {
+        retval = nc_inq_dimlen(ncid, dimids[i], &dims[i]);
+        if (retval != NC_NOERR) {
+            std::cerr << "������ ������ ��������� � ����� " << filename << " : " << nc_strerror(retval) << std::endl;
+            nc_close(ncid);
+            return false;
+        }
+    }
+
+    nc_close(ncid);
+
+    T = dims[0];
+    Y = dims[1];
+    X = dims[2];
+    return true;
+}
 std::vector<std::vector<std::vector<double>>> read_nc_file(const fs::path& file, int y_start, int y_end) {
     std::vector<std::vector<std::vector<double>>> data;
     std::cout << "loading: " << file << std::endl;
@@ -84,6 +132,10 @@ std::vector<std::vector<std::vector<double>>> WaveManager::load_mariogramm_by_re
     return read_nc_file(nc_file, y_start, y_end);
 }
 
+bool WaveManager::get_dimensions(std::size_t& T, std::size_t& Y, std::size_t& X) const {
+    return inquire_nc_dimensions(nc_file, T, Y, X);
+}
+
 
 int extractIndex(const fs::path& filePath) {
 
@@ -134,4 +186,17 @@ std::vector<std::vector<std::vector<std::vector<double>>>> BasisManager::get_fk_
         }
     }
     return fk;
+}
+
+std::size_t BasisManager::basis_count() const {
+    auto files = getSortedFileList(folder);
+    return files.size();
+}
+
+bool BasisManager::get_dimensions(std::size_t& T, std::size_t& Y, std::size_t& X) const {
+    auto files = getSortedFileList(folder);
+    if (files.empty()) {
+        return false;
+    }
+    return inquire_nc_dimensions(files.front().string(), T, Y, X);
 }
