@@ -52,17 +52,26 @@ void calculate_statistics(const std::string& root_folder,
         maxY = std::max(maxY, int(bg::get<1>(p)));
     }
     BasisManager basis_manager(root_folder + "/" + bath + "/" + basis);
-    WaveManager  wave_manager(root_folder + "/" + bath + "/" + wave + ".nc");
+    WaveManager wave_manager(root_folder + "/" + bath + "/" + wave + ".nc");
+
+    if (!wave_manager.valid()) {
+        std::cerr << "failed to open wave dataset " << wave_manager.path() << '\n';
+        return;
+    }
+    if (!basis_manager.valid()) {
+        std::cerr << "failed to open basis datasets in " << basis_manager.directory() << '\n';
+        return;
+    }
 
     std::size_t wave_T = 0, wave_Y = 0, wave_X = 0;
     if (!wave_manager.get_dimensions(wave_T, wave_Y, wave_X)) {
-        std::cerr << "failed to query wave dimensions for " << wave_manager.nc_file << '\n';
+        std::cerr << "failed to query wave dimensions for " << wave_manager.path() << '\n';
         return;
     }
 
     std::size_t basis_T = 0, basis_Y = 0, basis_X = 0;
     if (!basis_manager.get_dimensions(basis_T, basis_Y, basis_X)) {
-        std::cerr << "failed to query basis dimensions for " << basis_manager.folder << '\n';
+        std::cerr << "failed to query basis dimensions for " << basis_manager.directory() << '\n';
         return;
     }
 
@@ -73,7 +82,7 @@ void calculate_statistics(const std::string& root_folder,
 
     std::size_t basis_count = basis_manager.basis_count();
     if (basis_count == 0) {
-        std::cerr << "no basis files found in " << basis_manager.folder << '\n';
+        std::cerr << "no basis files found in " << basis_manager.directory() << '\n';
         return;
     }
 
@@ -97,15 +106,34 @@ void calculate_statistics(const std::string& root_folder,
     }
 
     std::vector<Point2i> points;
+    std::vector<PointSpan> spans;
     points.reserve(static_cast<std::size_t>(maxY - minY + 1)
         * static_cast<std::size_t>(maxX - minX + 1));
+    spans.reserve(static_cast<std::size_t>(maxY - minY + 1));
 
     for (int y = minY; y <= maxY; ++y) {
+        PointSpan current_span{};
+        bool span_active = false;
         for (int x = minX; x <= maxX; ++x) {
             Point2i pt(x, y);
             if (bg::within(pt, area_config.mariogramm_poly)) {
+                if (!span_active) {
+                    current_span = PointSpan{};
+                    current_span.y = y;
+                    current_span.x_start = x;
+                    current_span.offset = points.size();
+                    current_span.length = 0;
+                    span_active = true;
+                }
+                ++current_span.length;
                 points.emplace_back(pt);
+            } else if (span_active) {
+                spans.push_back(current_span);
+                span_active = false;
             }
+        }
+        if (span_active) {
+            spans.push_back(current_span);
         }
     }
 
@@ -138,12 +166,54 @@ void calculate_statistics(const std::string& root_folder,
         double load_seconds = 0.0;
     };
 
+    auto build_chunk_spans = [&](std::size_t start, std::size_t end) {
+        std::vector<PointSpan> chunk_spans;
+        chunk_spans.reserve(end > start ? (end - start) : 0);
+        for (const auto& span : spans) {
+            std::size_t span_begin = span.offset;
+            std::size_t span_end = span_begin + span.length;
+            if (span_end <= start) {
+                continue;
+            }
+            if (span_begin >= end) {
+                break;
+            }
+
+            std::size_t clipped_begin = std::max(start, span_begin);
+            std::size_t clipped_end = std::min(end, span_end);
+            if (clipped_end <= clipped_begin) {
+                continue;
+            }
+
+            std::size_t local_offset = clipped_begin - start;
+            std::size_t relative_start = clipped_begin - span_begin;
+            if (relative_start > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+                std::cerr << "span start offset exceeds int range" << '\n';
+                continue;
+            }
+            int relative_start_int = static_cast<int>(relative_start);
+            if (relative_start_int > 0
+                && span.x_start > std::numeric_limits<int>::max() - relative_start_int) {
+                std::cerr << "span start overflow for y=" << span.y << '\n';
+                continue;
+            }
+            PointSpan local_span{};
+            local_span.y = span.y;
+            local_span.x_start = span.x_start + relative_start_int;
+            local_span.length = clipped_end - clipped_begin;
+            local_span.offset = local_offset;
+            chunk_spans.push_back(local_span);
+        }
+        return chunk_spans;
+    };
+
     auto load_chunk = [&](std::size_t start, std::size_t end) {
         LoadedChunk chunk;
         chunk.points.assign(points.begin() + start, points.begin() + end);
+        auto chunk_spans = build_chunk_spans(start, end);
         auto load_start = std::chrono::steady_clock::now();
-        chunk.wave = wave_manager.load_mariogramm_points(chunk.points, T, data_height, W);
-        chunk.fk = basis_manager.get_fk_points(chunk.points, T, data_height, W);
+        chunk.wave = wave_manager.load_point_spans(chunk_spans, T, chunk.points.size());
+        chunk.fk = basis_manager.load_point_spans(chunk_spans, T, chunk.points.size());
         auto load_end = std::chrono::steady_clock::now();
         chunk.load_seconds = std::chrono::duration<double>(load_end - load_start).count();
         return chunk;
