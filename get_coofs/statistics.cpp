@@ -1,36 +1,35 @@
-﻿// statistics.cpp
 #include "statistics.h"
+
 #include "approx_orto.h"
+
 #include <Eigen/Dense>
-#include <fstream>
-#include <iostream>
-#include <sstream>
-#include <future>
+
 #include <algorithm>
-#include <utility>
-#include <thread>
+#include <chrono>
+#include <cmath>
+#include <iostream>
 #include <iterator>
-#include "json.hpp"
-#include <boost/geometry.hpp>
-#include <boost/geometry/geometries/point.hpp>
+#include <map>
+#include <thread>
 
-using json = nlohmann::json;
 namespace bg = boost::geometry;
-using Point2i = bg::model::d2::point_xy<int>;
 
+namespace {
 
-int count_from_name(const std::string& name) {
-  
-    std::size_t underscorePos = name.find('_');
-    if (underscorePos != std::string::npos) {
-     
-        std::string numberPart = name.substr(underscorePos + 1);
-     
-        return std::stoi(numberPart);
+struct PointLess {
+    bool operator()(const Point2i& lhs, const Point2i& rhs) const {
+        int y_lhs = bg::get<1>(lhs);
+        int y_rhs = bg::get<1>(rhs);
+        if (y_lhs != y_rhs) {
+            return y_lhs < y_rhs;
+        }
+        return bg::get<0>(lhs) < bg::get<0>(rhs);
     }
-   
-    return 0;
-}
+};
+
+constexpr std::size_t MAX_MEMORY_BYTES = 45ULL * 1024ULL * 1024ULL * 1024ULL;
+
+} // namespace
 
 void calculate_statistics(const std::string& root_folder,
     const std::string& bath,
@@ -39,189 +38,195 @@ void calculate_statistics(const std::string& root_folder,
     const AreaConfigurationInfo& area_config,
     CoeffMatrix& statistics_orto) {
 
-    // 1) вычисляем границы полигона
-    int minY = area_config.height, maxY = 0;
-    int minX = area_config.width, maxX = 0;
+    statistics_orto.clear();
+
+    int minY = area_config.height;
+    int maxY = 0;
+    int minX = area_config.width;
+    int maxX = 0;
+
     for (auto const& p : area_config.mariogramm_poly.outer()) {
-        minX = std::min(minX, int(bg::get<0>(p)));
-        maxX = std::max(maxX, int(bg::get<0>(p)));
-        minY = std::min(minY, int(bg::get<1>(p)));
-        maxY = std::max(maxY, int(bg::get<1>(p)));
+        minX = std::min(minX, static_cast<int>(bg::get<0>(p)));
+        maxX = std::max(maxX, static_cast<int>(bg::get<0>(p)));
+        minY = std::min(minY, static_cast<int>(bg::get<1>(p)));
+        maxY = std::max(maxY, static_cast<int>(bg::get<1>(p)));
     }
+
+    minX = std::max(minX, 0);
+    minY = std::max(minY, 0);
+    maxX = std::min(maxX, area_config.width - 1);
+    maxY = std::min(maxY, area_config.height - 1);
+
+    if (minX > maxX || minY > maxY) {
+        return;
+    }
+
+    std::vector<Point2i> inside_points;
+    const std::size_t bbox_width = static_cast<std::size_t>(maxX - minX + 1);
+    const std::size_t bbox_height = static_cast<std::size_t>(maxY - minY + 1);
+    inside_points.reserve(bbox_width * bbox_height);
+
+    for (int y = minY; y <= maxY; ++y) {
+        for (int x = minX; x <= maxX; ++x) {
+            Point2i pt{ x, y };
+            if (bg::within(pt, area_config.mariogramm_poly)) {
+                inside_points.push_back(pt);
+            }
+        }
+    }
+
+    if (inside_points.empty()) {
+        return;
+    }
+
+    std::sort(inside_points.begin(), inside_points.end(), PointLess{});
+
     BasisManager basis_manager(root_folder + "/" + bath + "/" + basis);
-    WaveManager  wave_manager(root_folder + "/" + bath + "/" + wave + ".nc");
+    WaveManager wave_manager(root_folder + "/" + bath + "/" + wave + ".nc");
 
-    int H = maxY - minY;
+    if (!wave_manager.valid()) {
+        std::cerr << "Wave manager is not ready; aborting statistics calculation" << std::endl;
+        return;
+    }
 
-    // Для оценки ширины полосы чтения загружаем одну строку
-    auto fk_sample = basis_manager.get_fk_region(minY, minY + 1);
-    auto wave_sample = wave_manager.load_mariogramm_by_region(minY, minY + 1);
-    if (fk_sample.empty() || wave_sample.empty()) return;
+    const NetCDFVariableInfo& wave_info = wave_manager.describe();
+    const NetCDFVariableInfo& basis_info = basis_manager.describe();
+    const int n_basis = basis_manager.basis_count();
 
-    int T = static_cast<int>(wave_sample.size());
-    int W = static_cast<int>(wave_sample[0][0].size());
-    int n_basis = static_cast<int>(fk_sample.size());
+    if (wave_info.t == 0 || n_basis <= 0 || basis_info.t == 0) {
+        std::cerr << "Insufficient NetCDF metadata to continue" << std::endl;
+        return;
+    }
 
-    constexpr std::size_t MAX_MEMORY_BYTES = 45ULL * 1024ULL * 1024ULL * 1024ULL; // 50 GB
-    std::size_t bytes_per_row = static_cast<std::size_t>(n_basis + 1) * T * W * sizeof(double);
-    int band_height = static_cast<int>(std::max<std::size_t>(1, MAX_MEMORY_BYTES / bytes_per_row));
+    if (basis_info.t != 0 && basis_info.t != wave_info.t) {
+        std::cerr << "Warning: basis time dimension does not match wave data" << std::endl;
+    }
 
-    for (int band_start = 0; band_start < H; band_start += band_height) {
-        int band_end = std::min(H, band_start + band_height);
+    std::size_t bytes_per_point = static_cast<std::size_t>(n_basis + 1) * wave_info.t * sizeof(double);
+    if (bytes_per_point == 0) {
+        return;
+    }
 
-        auto fk_data = basis_manager.get_fk_region(minY + band_start, minY + band_end);
-        auto wave_data = wave_manager.load_mariogramm_by_region(minY + band_start, minY + band_end);
-        if (fk_data.empty() || wave_data.empty()) continue;
+    unsigned thread_count = std::max(1u, std::thread::hardware_concurrency());
+    thread_count = std::min<unsigned>(thread_count, static_cast<unsigned>(inside_points.size()));
+    if (thread_count == 0) {
+        thread_count = 1;
+    }
 
-        int bandH = band_end - band_start;
-        if (bandH <= 0)
-            continue;
+    std::size_t max_points_per_chunk = MAX_MEMORY_BYTES / bytes_per_point;
+    if (max_points_per_chunk == 0) {
+        max_points_per_chunk = 1;
+    }
 
-        // 2) параллельно по строкам блока на 24 потока
-        constexpr int THREADS = 48;
-        int rows_per_thread = std::max(1, (bandH + THREADS - 1) / THREADS);
+    std::map<int, std::vector<CoefficientData>> aggregated_rows;
+    uint64_t total_load_ms = 0;
+    uint64_t total_proc_ms = 0;
+    bool had_error = false;
 
-        // заранее режем загруженный блок на жирные диапазоны строк,
-        // чтобы каждый поток получил свою крупную порцию работы
-        std::vector<std::pair<int, int>> row_ranges;
-        row_ranges.reserve((bandH + rows_per_thread - 1) / rows_per_thread);
-        for (int start = 0; start < bandH; start += rows_per_thread) {
-            int end = std::min(start + rows_per_thread, bandH);
-            row_ranges.emplace_back(start, end);
+    for (std::size_t chunk_begin = 0; chunk_begin < inside_points.size() && !had_error; chunk_begin += max_points_per_chunk) {
+        std::size_t chunk_end = std::min(chunk_begin + max_points_per_chunk, inside_points.size());
+        std::size_t chunk_size = chunk_end - chunk_begin;
+        const Point2i* chunk_points = inside_points.data() + chunk_begin;
+
+        std::vector<double> wave_buffer;
+        std::vector<std::vector<double>> basis_buffer;
+
+        std::cout << "LOAD_START thread=-1 points=" << chunk_size << "\n";
+        auto load_start = std::chrono::steady_clock::now();
+        if (!wave_manager.load_points(chunk_points, chunk_size, wave_buffer)) {
+            had_error = true;
+            break;
+        }
+        if (!basis_manager.load_points(chunk_points, chunk_size, basis_buffer)) {
+            had_error = true;
+            break;
+        }
+        auto load_end = std::chrono::steady_clock::now();
+        auto load_ms = std::chrono::duration_cast<std::chrono::milliseconds>(load_end - load_start).count();
+        total_load_ms += static_cast<uint64_t>(load_ms);
+        std::cout << "LOAD_END thread=-1 points=" << chunk_size << " ms=" << load_ms << "\n";
+
+        unsigned active_threads = std::min<unsigned>(thread_count, static_cast<unsigned>(chunk_size));
+        if (active_threads == 0) {
+            active_threads = 1;
         }
 
-        const int total_width = std::max(1, maxX - minX + 1);
-        const unsigned hardware_threads = std::max(1u, std::thread::hardware_concurrency());
-        const int default_tile_width = 128;
-        const int min_preferred_tile_width = 64;
-        int tile_width = std::min(default_tile_width, total_width);
-        if (tile_width < min_preferred_tile_width && total_width >= min_preferred_tile_width) {
-            tile_width = min_preferred_tile_width;
-        }
-        std::size_t col_tiles = static_cast<std::size_t>((total_width + tile_width - 1) / tile_width);
-        if (col_tiles == 0) {
-            col_tiles = 1;
-            tile_width = total_width;
-        }
-        while (!row_ranges.empty() && row_ranges.size() * col_tiles < hardware_threads && tile_width > 1) {
-            int next_width = tile_width > min_preferred_tile_width
-                ? std::max(min_preferred_tile_width, tile_width / 2)
-                : std::max(tile_width / 2, 1);
-            if (next_width == tile_width) {
-                if (tile_width == 1) {
-                    break;
+        std::vector<std::map<int, std::vector<CoefficientData>>> local_rows(active_threads);
+        std::vector<uint64_t> local_proc_ms(active_threads, 0);
+
+        std::size_t base_chunk = chunk_size / active_threads;
+        std::size_t remainder = chunk_size % active_threads;
+        std::size_t offset = 0;
+
+        std::vector<std::thread> workers;
+        workers.reserve(active_threads);
+
+        for (unsigned t = 0; t < active_threads; ++t) {
+            std::size_t take = base_chunk + (t < remainder ? 1 : 0);
+            std::size_t local_begin = offset;
+            std::size_t local_end = offset + take;
+            offset = local_end;
+
+            workers.emplace_back([&, t, local_begin, local_end, chunk_points]() {
+                if (local_begin >= local_end) {
+                    return;
                 }
-                next_width = 1;
-            }
-            tile_width = next_width;
-            col_tiles = static_cast<std::size_t>((total_width + tile_width - 1) / tile_width);
-        }
 
-        std::vector<std::pair<int, int>> col_ranges;
-        col_ranges.reserve(col_tiles);
-        for (int start = minX; start <= maxX; start += tile_width) {
-            int end = std::min(start + tile_width, maxX + 1);
-            if (start < end) {
-                col_ranges.emplace_back(start, end);
-            }
-        }
-        if (col_ranges.empty()) {
-            col_ranges.emplace_back(minX, maxX + 1);
-        }
+                std::size_t local_count = local_end - local_begin;
+                std::cout << "PROC_START thread=" << t << " points=" << local_count << "\n";
+                auto proc_start = std::chrono::steady_clock::now();
 
-        CoeffMatrix band_results(bandH);
-        std::vector<std::vector<CoeffMatrix>> tile_results(row_ranges.size());
-        for (auto& row_tiles : tile_results) {
-            row_tiles.resize(col_ranges.size());
-        }
-        std::vector<std::future<void>> futs;
-        futs.reserve(row_ranges.size() * col_ranges.size());
-
-        for (std::size_t row_idx = 0; row_idx < row_ranges.size(); ++row_idx) {
-            int row_start = row_ranges[row_idx].first;
-            int row_end = row_ranges[row_idx].second;
-            if (row_start >= row_end) {
-                continue;
-            }
-            for (std::size_t col_idx = 0; col_idx < col_ranges.size(); ++col_idx) {
-                int col_start = col_ranges[col_idx].first;
-                int col_end = col_ranges[col_idx].second;
-                if (col_start >= col_end) {
-                    continue;
-                }
-                futs.emplace_back(std::async(std::launch::async, [&, row_idx, col_idx, row_start, row_end, col_start, col_end]() {
-                    CoeffMatrix local(row_end - row_start);
-                    for (int i = row_start; i < row_end; ++i) {
-                        std::vector<CoefficientData> row;
-                        auto tile_capacity = static_cast<std::size_t>(std::max(0, col_end - col_start));
-                        row.reserve(tile_capacity);
-                        for (int x = col_start; x < col_end; ++x) {
-                            Point2i pt{ x, minY + band_start + i };
-                            if (!bg::within(pt, area_config.mariogramm_poly))
-                                continue;
-
-                            Eigen::VectorXd wave_vec(T);
-                            for (int t = 0; t < T; ++t)
-                                wave_vec[t] = wave_data[t][i][x];
-
-                            Eigen::MatrixXd B(n_basis, T);
-                            for (int b = 0; b < n_basis; ++b)
-                                for (int t = 0; t < T; ++t)
-                                    B(b, t) = fk_data[b][t][i][x];
-
-                            auto coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
-                            Eigen::VectorXd approx = B.transpose() * coefs;
-                            double err = std::sqrt((wave_vec - approx).squaredNorm() / T);
-
-                            row.push_back({ pt, coefs, err });
-                        }
-                        local[i - row_start] = std::move(row);
+                for (std::size_t idx = local_begin; idx < local_end; ++idx) {
+                    const Point2i& pt = chunk_points[idx];
+                    Eigen::Map<const Eigen::VectorXd> wave_vec(&wave_buffer[idx * wave_info.t], static_cast<Eigen::Index>(wave_info.t));
+                    Eigen::MatrixXd B(n_basis, static_cast<Eigen::Index>(wave_info.t));
+                    for (int b = 0; b < n_basis; ++b) {
+                        Eigen::Map<const Eigen::VectorXd> basis_vec(&basis_buffer[static_cast<std::size_t>(b)][idx * wave_info.t], static_cast<Eigen::Index>(wave_info.t));
+                        B.row(static_cast<Eigen::Index>(b)) = basis_vec.transpose();
                     }
-                    tile_results[row_idx][col_idx] = std::move(local);
-                }));
+
+                    Eigen::VectorXd coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
+                    Eigen::VectorXd approx = B.transpose() * coefs;
+                    double err = std::sqrt((wave_vec - approx).squaredNorm() / static_cast<double>(wave_info.t));
+
+                    local_rows[t][bg::get<1>(pt)].push_back({ pt, std::move(coefs), err });
+                }
+
+                auto proc_end = std::chrono::steady_clock::now();
+                auto proc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(proc_end - proc_start).count();
+                local_proc_ms[t] += static_cast<uint64_t>(proc_ms);
+                std::cout << "PROC_END thread=" << t << " points=" << local_count << " ms=" << proc_ms << "\n";
+            });
+        }
+
+        for (auto& worker_thread : workers) {
+            worker_thread.join();
+        }
+
+        for (unsigned t = 0; t < active_threads; ++t) {
+            total_proc_ms += local_proc_ms[t];
+            for (auto& [y, row] : local_rows[t]) {
+                auto& dst = aggregated_rows[y];
+                dst.insert(dst.end(), std::make_move_iterator(row.begin()), std::make_move_iterator(row.end()));
             }
         }
+    }
 
-        for (auto& f : futs) {
-            f.get();
-        }
+    uint64_t total_points = static_cast<uint64_t>(inside_points.size());
+    std::cout << "SUMMARY points_total=" << total_points
+        << " threads=" << thread_count
+        << " load_ms_total=" << total_load_ms
+        << " proc_ms_total=" << total_proc_ms << "\n";
 
-        for (std::size_t row_idx = 0; row_idx < row_ranges.size(); ++row_idx) {
-            int row_start = row_ranges[row_idx].first;
-            int row_end = row_ranges[row_idx].second;
-            for (int i = row_start; i < row_end; ++i) {
-                std::size_t local_idx = static_cast<std::size_t>(i - row_start);
-                std::size_t total_row_size = 0;
-                for (std::size_t col_idx = 0; col_idx < col_ranges.size(); ++col_idx) {
-                    const auto& tile_row = tile_results[row_idx][col_idx];
-                    if (local_idx < tile_row.size()) {
-                        total_row_size += tile_row[local_idx].size();
-                    }
-                }
-                if (total_row_size == 0) {
-                    continue;
-                }
+    if (had_error) {
+        return;
+    }
 
-                auto& dst_row = band_results[i];
-                dst_row.reserve(total_row_size);
-                for (std::size_t col_idx = 0; col_idx < col_ranges.size(); ++col_idx) {
-                    auto& tile_row = tile_results[row_idx][col_idx];
-                    if (local_idx >= tile_row.size()) {
-                        continue;
-                    }
-                    auto& segment = tile_row[local_idx];
-                    if (!segment.empty()) {
-                        std::move(segment.begin(), segment.end(), std::back_inserter(dst_row));
-                        segment.clear();
-                    }
-                }
-            }
-        }
-
-        for (auto& row : band_results) {
-            if (!row.empty())
-                statistics_orto.push_back(std::move(row));
-        }
+    for (auto& [y, row] : aggregated_rows) {
+        std::sort(row.begin(), row.end(), [](const CoefficientData& lhs, const CoefficientData& rhs) {
+            return bg::get<0>(lhs.pt) < bg::get<0>(rhs.pt);
+        });
+        statistics_orto.push_back(std::move(row));
     }
 }
 
@@ -230,7 +235,7 @@ void save_coefficients_json(const std::string& filename, const CoeffMatrix& coef
     for (size_t row = 0; row < coeffs.size(); ++row) {
         for (size_t col = 0; col < coeffs[row].size(); ++col) {
             std::string key = "[" + std::to_string(bg::get<0>(coeffs[row][col].pt)) + "," + std::to_string(bg::get<1>(coeffs[row][col].pt)) + "]";
-           
+
             std::vector<double> vec(coeffs[row][col].coefs.data(),
                 coeffs[row][col].coefs.data() + coeffs[row][col].coefs.size());
             double error = coeffs[row][col].aprox_error;
@@ -239,7 +244,7 @@ void save_coefficients_json(const std::string& filename, const CoeffMatrix& coef
     }
     std::ofstream ofs(filename);
     if (!ofs.is_open()) {
-        std::cerr << "error to write " << filename << " file.\n";
+        std::cerr << "Failed to open output file: " << filename << "\n";
         return;
     }
     ofs << j.dump(4);
@@ -258,5 +263,4 @@ void save_and_plot_statistics(const std::string& root_folder,
     std::string filename_orto = "case_statistics_" + basis + bath + wave + "_o.json";
 
     save_coefficients_json(filename_orto, statistics_orto);
-
 }

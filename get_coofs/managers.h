@@ -3,25 +3,42 @@
 
 #include <string>
 #include <vector>
+#include <filesystem>
 #include "stable_data_structs.h"
 
+struct NetCDFVariableInfo {
+    std::size_t t = 0;
+    std::size_t y = 0;
+    std::size_t x = 0;
+};
 
 class BasisManager {
 public:
-    std::string folder; 
+    explicit BasisManager(const std::string& folder_);
 
-    explicit BasisManager(const std::string& folder_) : folder(folder_) {}
+    int basis_count() const;
+    const NetCDFVariableInfo& describe() const;
+    bool load_points(const Point2i* points, std::size_t count, std::vector<std::vector<double>>& out) const;
 
-    std::vector<std::vector<std::vector<std::vector<double>>>> get_fk_region(int y_start, int y_end);
+private:
+    std::string folder;
+    std::vector<std::filesystem::path> basis_files;
+    NetCDFVariableInfo info{};
+    bool has_info = false;
 };
 
 class WaveManager {
 public:
-    std::string nc_file; 
+    explicit WaveManager(const std::string& nc_file_);
 
-    explicit WaveManager(const std::string& nc_file_) : nc_file(nc_file_) {}
+    const NetCDFVariableInfo& describe() const;
+    bool valid() const;
+    bool load_points(const Point2i* points, std::size_t count, std::vector<double>& out) const;
 
-    std::vector<std::vector<std::vector<double>>> load_mariogramm_by_region(int y_start, int y_end);
+private:
+    std::string nc_file;
+    NetCDFVariableInfo info{};
+    bool has_info = false;
 };
 
 #endif // MANAGERS_H
