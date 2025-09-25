@@ -7,10 +7,16 @@
 #include <limits>
 #include <regex>
 #include <system_error>
+#include <mutex>
 
 namespace {
 
 constexpr const char* kVariableName = "height";
+
+std::mutex& netcdf_mutex() {
+    static std::mutex mutex;
+    return mutex;
+}
 
 struct NCFileHandle {
     int id = -1;
@@ -113,6 +119,8 @@ bool read_points_from_file(const std::string& file,
     if (spans.empty()) {
         return true;
     }
+
+    std::lock_guard<std::mutex> lock(netcdf_mutex());
 
     NCFileHandle handle(file);
     if (!handle.valid()) {
