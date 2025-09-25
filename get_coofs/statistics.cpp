@@ -5,7 +5,6 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
-#include <future>
 #include <algorithm>
 #include <limits>
 #include <utility>
@@ -125,6 +124,7 @@ void calculate_statistics(const std::string& root_folder,
     std::size_t total_points = points.size();
 
     for (std::size_t chunk_start = 0; chunk_start < total_points; chunk_start += points_per_chunk) {
+        auto chunk_cycle_start = std::chrono::steady_clock::now();
         std::size_t chunk_end = std::min(total_points, chunk_start + points_per_chunk);
         std::vector<Point2i> chunk_points(points.begin() + chunk_start, points.begin() + chunk_end);
 
@@ -168,8 +168,8 @@ void calculate_statistics(const std::string& root_folder,
             / static_cast<std::size_t>(thread_count);
 
         std::vector<std::vector<CoefficientData>> thread_local_results(static_cast<std::size_t>(thread_count));
-        std::vector<std::future<void>> futures;
-        futures.reserve(thread_count);
+        std::vector<std::thread> threads;
+        threads.reserve(thread_count);
 
         for (int thread_idx = 0; thread_idx < thread_count; ++thread_idx) {
             std::size_t start_idx = static_cast<std::size_t>(thread_idx) * points_per_thread;
@@ -178,8 +178,7 @@ void calculate_statistics(const std::string& root_folder,
             }
             std::size_t end_idx = std::min(chunk_size, start_idx + points_per_thread);
 
-            futures.emplace_back(std::async(std::launch::async,
-                [&, thread_idx, start_idx, end_idx]() {
+            threads.emplace_back([&, thread_idx, start_idx, end_idx]() {
                     auto& local = thread_local_results[static_cast<std::size_t>(thread_idx)];
                     local.reserve(end_idx - start_idx);
 
@@ -217,11 +216,13 @@ void calculate_statistics(const std::string& root_folder,
 
                         local.push_back({ chunk_points[idx], coefs, err });
                     }
-                }));
+                });
         }
 
-        for (auto& f : futures) {
-            f.get();
+        for (auto& thread : threads) {
+            if (thread.joinable()) {
+                thread.join();
+            }
         }
 
         std::vector<CoefficientData> chunk_result;
@@ -233,6 +234,11 @@ void calculate_statistics(const std::string& root_folder,
         if (!chunk_result.empty()) {
             statistics_orto.push_back(std::move(chunk_result));
         }
+
+        auto chunk_cycle_end = std::chrono::steady_clock::now();
+        auto chunk_cycle_seconds = std::chrono::duration<double>(chunk_cycle_end - chunk_cycle_start);
+        std::cout << "Chunk processing cycle for points " << chunk_start << "-" << chunk_end
+                  << " took " << chunk_cycle_seconds.count() << " seconds" << std::endl;
     }
 }
 
