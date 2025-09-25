@@ -105,35 +105,29 @@ void calculate_statistics(const std::string& root_folder,
         return;
     }
 
+    struct RowPoints {
+        int y = 0;
+        std::vector<int> xs;
+    };
+
     std::vector<Point2i> points;
-    std::vector<PointSpan> spans;
+    std::vector<RowPoints> rows;
     points.reserve(static_cast<std::size_t>(maxY - minY + 1)
         * static_cast<std::size_t>(maxX - minX + 1));
-    spans.reserve(static_cast<std::size_t>(maxY - minY + 1));
+    rows.reserve(static_cast<std::size_t>(maxY - minY + 1));
 
     for (int y = minY; y <= maxY; ++y) {
-        PointSpan current_span{};
-        bool span_active = false;
+        RowPoints row;
+        row.y = y;
         for (int x = minX; x <= maxX; ++x) {
             Point2i pt(x, y);
             if (bg::within(pt, area_config.mariogramm_poly)) {
-                if (!span_active) {
-                    current_span = PointSpan{};
-                    current_span.y = y;
-                    current_span.x_start = x;
-                    current_span.offset = points.size();
-                    current_span.length = 0;
-                    span_active = true;
-                }
-                ++current_span.length;
+                row.xs.push_back(x);
                 points.emplace_back(pt);
-            } else if (span_active) {
-                spans.push_back(current_span);
-                span_active = false;
             }
         }
-        if (span_active) {
-            spans.push_back(current_span);
+        if (!row.xs.empty()) {
+            rows.push_back(std::move(row));
         }
     }
 
@@ -141,79 +135,132 @@ void calculate_statistics(const std::string& root_folder,
         return;
     }
 
+    std::vector<std::size_t> row_point_prefix(rows.size() + 1, 0);
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        row_point_prefix[i + 1] = row_point_prefix[i] + rows[i].xs.size();
+    }
+
     constexpr std::size_t MAX_MEMORY_BYTES = 45ULL * 1024ULL * 1024ULL * 1024ULL; // 45 GB
-    std::size_t bytes_per_point = static_cast<std::size_t>(n_basis + 1)
+    std::size_t bytes_per_cell = static_cast<std::size_t>(n_basis + 1)
         * static_cast<std::size_t>(T) * sizeof(double);
 
-    std::size_t max_points_by_memory = bytes_per_point > 0 ? MAX_MEMORY_BYTES / bytes_per_point : 0;
-    if (max_points_by_memory == 0) {
-        max_points_by_memory = 1;
+    std::size_t max_cells = bytes_per_cell > 0 ? MAX_MEMORY_BYTES / bytes_per_cell : 0;
+    if (max_cells == 0) {
+        max_cells = 1;
     }
-
-    std::size_t points_per_chunk = max_points_by_memory;
-    if (points_per_chunk > 1) {
+    if (max_cells > 1) {
         // Double buffering keeps one chunk in compute while the next loads, so
         // halve the memory target to honour the overall limit.
-        points_per_chunk = std::max<std::size_t>(1, points_per_chunk / 2);
+        max_cells = std::max<std::size_t>(1, max_cells / 2);
     }
 
-    std::size_t total_points = points.size();
+    struct ChunkPlan {
+        std::size_t row_start = 0;
+        std::size_t row_end = 0;
+        int y_start = 0;
+        std::size_t y_count = 0;
+        int x_start = 0;
+        std::size_t x_count = 0;
+        std::size_t point_count = 0;
+    };
 
     struct LoadedChunk {
+        ChunkPlan plan;
         std::vector<Point2i> points;
-        std::vector<std::vector<double>> wave;
-        std::vector<std::vector<std::vector<double>>> fk;
+        std::vector<std::vector<std::vector<double>>> wave;
+        std::vector<std::vector<std::vector<std::vector<double>>>> fk;
         double load_seconds = 0.0;
     };
 
-    auto build_chunk_spans = [&](std::size_t start, std::size_t end) {
-        std::vector<PointSpan> chunk_spans;
-        chunk_spans.reserve(end > start ? (end - start) : 0);
-        for (const auto& span : spans) {
-            std::size_t span_begin = span.offset;
-            std::size_t span_end = span_begin + span.length;
-            if (span_end <= start) {
-                continue;
-            }
-            if (span_begin >= end) {
+    auto plan_chunk = [&](std::size_t row_start) -> ChunkPlan {
+        ChunkPlan plan;
+        if (row_start >= rows.size()) {
+            return plan;
+        }
+
+        const auto& first_row = rows[row_start];
+        if (first_row.xs.empty()) {
+            plan.row_start = row_start;
+            plan.row_end = row_start + 1;
+            plan.y_start = first_row.y;
+            plan.y_count = 1;
+            plan.x_start = 0;
+            plan.x_count = 0;
+            plan.point_count = 0;
+            return plan;
+        }
+
+        int x_min = first_row.xs.front();
+        int x_max = first_row.xs.back();
+        int y_start_row = first_row.y;
+        int y_end_row = first_row.y;
+        std::size_t row_end = row_start + 1;
+        std::size_t point_count = first_row.xs.size();
+
+        while (row_end < rows.size()) {
+            const auto& prev_row = rows[row_end - 1];
+            const auto& next_row = rows[row_end];
+            if (next_row.y != prev_row.y + 1) {
                 break;
             }
-
-            std::size_t clipped_begin = std::max(start, span_begin);
-            std::size_t clipped_end = std::min(end, span_end);
-            if (clipped_end <= clipped_begin) {
+            if (next_row.xs.empty()) {
+                ++row_end;
                 continue;
             }
-
-            std::size_t local_offset = clipped_begin - start;
-            std::size_t relative_start = clipped_begin - span_begin;
-            if (relative_start > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
-                std::cerr << "span start offset exceeds int range" << '\n';
-                continue;
+            int candidate_x_min = std::min(x_min, next_row.xs.front());
+            int candidate_x_max = std::max(x_max, next_row.xs.back());
+            int candidate_y_end = next_row.y;
+            std::size_t candidate_y_count = static_cast<std::size_t>(candidate_y_end - y_start_row + 1);
+            std::size_t candidate_x_count = static_cast<std::size_t>(candidate_x_max - candidate_x_min + 1);
+            std::size_t candidate_cells = candidate_y_count * candidate_x_count;
+            if (candidate_cells > max_cells) {
+                break;
             }
-            int relative_start_int = static_cast<int>(relative_start);
-            if (relative_start_int > 0
-                && span.x_start > std::numeric_limits<int>::max() - relative_start_int) {
-                std::cerr << "span start overflow for y=" << span.y << '\n';
-                continue;
-            }
-            PointSpan local_span{};
-            local_span.y = span.y;
-            local_span.x_start = span.x_start + relative_start_int;
-            local_span.length = clipped_end - clipped_begin;
-            local_span.offset = local_offset;
-            chunk_spans.push_back(local_span);
+            x_min = candidate_x_min;
+            x_max = candidate_x_max;
+            y_end_row = candidate_y_end;
+            point_count += next_row.xs.size();
+            ++row_end;
         }
-        return chunk_spans;
+
+        plan.row_start = row_start;
+        plan.row_end = row_end;
+        plan.y_start = y_start_row;
+        plan.y_count = static_cast<std::size_t>(y_end_row - y_start_row + 1);
+        plan.x_start = x_min;
+        plan.x_count = static_cast<std::size_t>(x_max - x_min + 1);
+        plan.point_count = point_count;
+        return plan;
     };
 
-    auto load_chunk = [&](std::size_t start, std::size_t end) {
+    auto load_chunk = [&](const ChunkPlan& plan) {
         LoadedChunk chunk;
-        chunk.points.assign(points.begin() + start, points.begin() + end);
-        auto chunk_spans = build_chunk_spans(start, end);
+        chunk.plan = plan;
+        if (plan.row_start >= plan.row_end || plan.point_count == 0) {
+            return chunk;
+        }
+
+        chunk.points.reserve(plan.point_count);
+        for (std::size_t row_idx = plan.row_start; row_idx < plan.row_end; ++row_idx) {
+            const auto& row = rows[row_idx];
+            for (int x : row.xs) {
+                chunk.points.emplace_back(x, row.y);
+            }
+        }
+
+        if (plan.y_count > static_cast<std::size_t>(std::numeric_limits<int>::max())
+            || plan.x_count > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+            std::cerr << "chunk dimensions exceed int range" << '\n';
+            chunk.points.clear();
+            return chunk;
+        }
+
+        int y_count_int = static_cast<int>(plan.y_count);
+        int x_count_int = static_cast<int>(plan.x_count);
+
         auto load_start = std::chrono::steady_clock::now();
-        chunk.wave = wave_manager.load_point_spans(chunk_spans, T, chunk.points.size());
-        chunk.fk = basis_manager.load_point_spans(chunk_spans, T, chunk.points.size());
+        chunk.wave = wave_manager.load_block(plan.y_start, y_count_int, plan.x_start, x_count_int);
+        chunk.fk = basis_manager.load_block(plan.y_start, y_count_int, plan.x_start, x_count_int);
         auto load_end = std::chrono::steady_clock::now();
         chunk.load_seconds = std::chrono::duration<double>(load_end - load_start).count();
         return chunk;
@@ -223,21 +270,41 @@ void calculate_statistics(const std::string& root_folder,
         std::size_t chunk_start,
         std::size_t chunk_end,
         const std::chrono::steady_clock::time_point& chunk_cycle_start) {
-        if (chunk.wave.size() != chunk.points.size()) {
+        if (chunk.points.empty()) {
             return;
         }
 
-        bool fk_valid = chunk.fk.size() == static_cast<std::size_t>(n_basis);
-        if (fk_valid) {
-            for (const auto& basis_points : chunk.fk) {
-                if (basis_points.size() != chunk.points.size()) {
-                    fk_valid = false;
-                    break;
+        if (chunk.wave.size() != static_cast<std::size_t>(T)) {
+            return;
+        }
+        for (const auto& plane : chunk.wave) {
+            if (plane.size() != chunk.plan.y_count) {
+                return;
+            }
+            for (const auto& row : plane) {
+                if (row.size() != chunk.plan.x_count) {
+                    return;
                 }
             }
         }
-        if (!fk_valid) {
+
+        if (chunk.fk.size() != static_cast<std::size_t>(n_basis)) {
             return;
+        }
+        for (const auto& basis_planes : chunk.fk) {
+            if (basis_planes.size() != static_cast<std::size_t>(T)) {
+                return;
+            }
+            for (const auto& plane : basis_planes) {
+                if (plane.size() != chunk.plan.y_count) {
+                    return;
+                }
+                for (const auto& row : plane) {
+                    if (row.size() != chunk.plan.x_count) {
+                        return;
+                    }
+                }
+            }
         }
 
         std::size_t chunk_size = chunk.points.size();
@@ -273,28 +340,30 @@ void calculate_statistics(const std::string& root_folder,
                 Eigen::MatrixXd B(n_basis, T);
 
                 for (std::size_t idx = start_idx; idx < end_idx; ++idx) {
-                    const auto& wave_series = chunk.wave[idx];
-                    if (wave_series.size() != static_cast<std::size_t>(T)) {
+                    const auto& pt = chunk.points[idx];
+                    int local_y = bg::get<1>(pt) - chunk.plan.y_start;
+                    int local_x = bg::get<0>(pt) - chunk.plan.x_start;
+                    if (local_y < 0 || local_x < 0) {
                         continue;
                     }
-
-                    bool basis_ok = true;
-                    for (int b = 0; b < n_basis; ++b) {
-                        const auto& basis_series = chunk.fk[static_cast<std::size_t>(b)][idx];
-                        if (basis_series.size() != static_cast<std::size_t>(T)) {
-                            basis_ok = false;
-                            break;
-                        }
-                        for (int t = 0; t < T; ++t) {
-                            B(b, t) = basis_series[static_cast<std::size_t>(t)];
-                        }
-                    }
-                    if (!basis_ok) {
+                    if (local_y >= static_cast<int>(chunk.plan.y_count)
+                        || local_x >= static_cast<int>(chunk.plan.x_count)) {
                         continue;
                     }
 
                     for (int t = 0; t < T; ++t) {
-                        wave_vec[t] = wave_series[static_cast<std::size_t>(t)];
+                        wave_vec[t] = chunk.wave[static_cast<std::size_t>(t)]
+                                              [static_cast<std::size_t>(local_y)]
+                                              [static_cast<std::size_t>(local_x)];
+                    }
+
+                    for (int b = 0; b < n_basis; ++b) {
+                        for (int t = 0; t < T; ++t) {
+                            B(b, t) = chunk.fk[static_cast<std::size_t>(b)]
+                                               [static_cast<std::size_t>(t)]
+                                               [static_cast<std::size_t>(local_y)]
+                                               [static_cast<std::size_t>(local_x)];
+                        }
                     }
 
                     auto coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
@@ -328,37 +397,51 @@ void calculate_statistics(const std::string& root_folder,
                   << " took " << chunk_cycle_seconds.count() << " seconds" << std::endl;
     };
 
-    std::size_t chunk_start = 0;
-    std::size_t chunk_end = std::min(total_points, chunk_start + points_per_chunk);
-    LoadedChunk current_chunk = load_chunk(chunk_start, chunk_end);
+    std::size_t row_index = 0;
+    ChunkPlan current_plan = plan_chunk(row_index);
+    if (current_plan.row_start >= current_plan.row_end) {
+        return;
+    }
+
+    LoadedChunk current_chunk = load_chunk(current_plan);
     std::cout << "Data load cycle for " << current_chunk.points.size()
               << " points took " << current_chunk.load_seconds << " seconds" << std::endl;
 
-    while (chunk_start < total_points) {
+    while (row_index < rows.size()) {
         auto chunk_cycle_start = std::chrono::steady_clock::now();
 
-        std::size_t next_start = chunk_end;
-        std::size_t next_end = std::min(total_points, next_start + points_per_chunk);
+        std::size_t next_row_start = current_plan.row_end;
 
         std::unique_ptr<LoadedChunk> next_chunk;
+        ChunkPlan next_plan;
         std::thread loader;
-        if (next_start < total_points) {
-            next_chunk = std::make_unique<LoadedChunk>();
-            loader = std::thread([&, next_start, next_end, ptr = next_chunk.get()]() {
-                *ptr = load_chunk(next_start, next_end);
-            });
+        if (next_row_start < rows.size()) {
+            next_plan = plan_chunk(next_row_start);
+            if (next_plan.row_start < next_plan.row_end) {
+                next_chunk = std::make_unique<LoadedChunk>();
+                loader = std::thread([&, next_plan, ptr = next_chunk.get()]() {
+                    *ptr = load_chunk(next_plan);
+                });
+            }
         }
 
-        process_chunk(current_chunk, chunk_start, chunk_end, chunk_cycle_start);
+        std::size_t chunk_point_start = row_point_prefix[current_plan.row_start];
+        std::size_t chunk_point_end = row_point_prefix[current_plan.row_end];
+
+        process_chunk(current_chunk, chunk_point_start, chunk_point_end, chunk_cycle_start);
 
         if (loader.joinable()) {
             loader.join();
             std::cout << "Data load cycle for " << next_chunk->points.size()
                       << " points took " << next_chunk->load_seconds << " seconds" << std::endl;
             current_chunk = std::move(*next_chunk);
-            chunk_start = next_start;
-            chunk_end = next_end;
+            current_plan = next_plan;
+            row_index = current_plan.row_start;
         } else {
+            break;
+        }
+
+        if (current_plan.row_start >= current_plan.row_end) {
             break;
         }
     }

@@ -174,55 +174,59 @@ bool WaveManager::get_dimensions(std::size_t& T, std::size_t& Y, std::size_t& X)
     return true;
 }
 
-std::vector<std::vector<double>> WaveManager::load_point_spans(
-    const std::vector<PointSpan>& spans,
-    int T,
-    std::size_t total_points) const
+std::vector<std::vector<std::vector<double>>> WaveManager::load_block(
+    int y_start,
+    int y_count,
+    int x_start,
+    int x_count) const
 {
-    std::vector<std::vector<double>> series;
-    if (!valid() || spans.empty() || T <= 0 || total_points == 0) {
-        return series;
+    std::vector<std::vector<std::vector<double>>> data;
+    if (!valid() || y_count <= 0 || x_count <= 0) {
+        return data;
     }
 
-    series.assign(total_points, std::vector<double>(static_cast<std::size_t>(T), 0.0));
-    std::vector<double> buffer;
-    buffer.reserve(static_cast<std::size_t>(T));
+    if (y_start < 0 || x_start < 0) {
+        return data;
+    }
 
-    for (const auto& span : spans) {
-        if (span.length == 0) {
-            continue;
-        }
+    std::size_t y_end = static_cast<std::size_t>(y_start) + static_cast<std::size_t>(y_count);
+    std::size_t x_end = static_cast<std::size_t>(x_start) + static_cast<std::size_t>(x_count);
+    if (y_end > dims[1] || x_end > dims[2]) {
+        return data;
+    }
 
-        buffer.resize(static_cast<std::size_t>(T) * span.length);
-        size_t start[3] = { 0, static_cast<size_t>(span.y), static_cast<size_t>(span.x_start) };
-        size_t count[3] = { static_cast<size_t>(T), 1, span.length };
+    std::size_t T = dims[0];
+    data.assign(T, std::vector<std::vector<double>>(static_cast<std::size_t>(y_count),
+        std::vector<double>(static_cast<std::size_t>(x_count), 0.0)));
 
-        std::cout << "Loading span y=" << span.y << " x=[" << span.x_start << ", "
-                  << (span.x_start + static_cast<int>(span.length)) << ") across "
-                  << T << " time steps from " << nc_file << std::endl;
+    std::vector<double> buffer(T * static_cast<std::size_t>(y_count) * static_cast<std::size_t>(x_count));
+    size_t start[3] = { 0, static_cast<size_t>(y_start), static_cast<size_t>(x_start) };
+    size_t count[3] = { T, static_cast<size_t>(y_count), static_cast<size_t>(x_count) };
 
-        int retval = nc_get_vara_double(ncid, varid, start, count, buffer.data());
-        if (retval != NC_NOERR) {
-            std::cerr << "Failed to read variable data from " << nc_file << " : "
-                      << nc_strerror(retval) << std::endl;
-            return {};
-        }
+    std::cout << "Loading block y=[" << y_start << ", " << (y_start + y_count)
+              << ") x=[" << x_start << ", " << (x_start + x_count) << ") across "
+              << T << " time steps from " << nc_file << std::endl;
 
-        std::cout << "Completed span load from " << nc_file << std::endl;
+    int retval = nc_get_vara_double(ncid, varid, start, count, buffer.data());
+    if (retval != NC_NOERR) {
+        std::cerr << "Failed to read variable data from " << nc_file << " : "
+                  << nc_strerror(retval) << std::endl;
+        return {};
+    }
 
-        for (std::size_t local = 0; local < span.length; ++local) {
-            std::size_t dest_index = span.offset + local;
-            if (dest_index >= total_points) {
-                continue;
-            }
-            auto& dest_series = series[dest_index];
-            for (int t = 0; t < T; ++t) {
-                dest_series[static_cast<std::size_t>(t)] = buffer[static_cast<std::size_t>(t) * span.length + local];
+    std::cout << "Completed block load from " << nc_file << std::endl;
+
+    for (std::size_t t = 0; t < T; ++t) {
+        for (int y = 0; y < y_count; ++y) {
+            for (int x = 0; x < x_count; ++x) {
+                std::size_t index = (t * static_cast<std::size_t>(y_count) + static_cast<std::size_t>(y))
+                    * static_cast<std::size_t>(x_count) + static_cast<std::size_t>(x);
+                data[t][static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] = buffer[index];
             }
         }
     }
 
-    return series;
+    return data;
 }
 
 BasisManager::BasisManager(const std::string& folder_)
@@ -288,58 +292,62 @@ bool BasisManager::get_dimensions(std::size_t& T, std::size_t& Y, std::size_t& X
     return true;
 }
 
-std::vector<std::vector<std::vector<double>>> BasisManager::load_point_spans(
-    const std::vector<PointSpan>& spans,
-    int T,
-    std::size_t total_points) const
+std::vector<std::vector<std::vector<std::vector<double>>>> BasisManager::load_block(
+    int y_start,
+    int y_count,
+    int x_start,
+    int x_count) const
 {
-    std::vector<std::vector<std::vector<double>>> series;
-    if (!valid() || spans.empty() || T <= 0 || total_points == 0) {
-        return series;
+    std::vector<std::vector<std::vector<std::vector<double>>>> data;
+    if (!valid() || y_count <= 0 || x_count <= 0) {
+        return data;
     }
 
-    series.assign(bases.size(), std::vector<std::vector<double>>(total_points, std::vector<double>(static_cast<std::size_t>(T), 0.0)));
-    std::vector<double> buffer;
+    if (y_start < 0 || x_start < 0) {
+        return data;
+    }
+
+    std::size_t y_end = static_cast<std::size_t>(y_start) + static_cast<std::size_t>(y_count);
+    std::size_t x_end = static_cast<std::size_t>(x_start) + static_cast<std::size_t>(x_count);
+    if (y_end > bases.front().dims[1] || x_end > bases.front().dims[2]) {
+        return data;
+    }
+
+    std::size_t T = bases.front().dims[0];
+    data.assign(bases.size(), std::vector<std::vector<std::vector<double>>>(T,
+        std::vector<std::vector<double>>(static_cast<std::size_t>(y_count),
+            std::vector<double>(static_cast<std::size_t>(x_count), 0.0))));
+
+    std::vector<double> buffer(T * static_cast<std::size_t>(y_count) * static_cast<std::size_t>(x_count));
 
     for (std::size_t basis_idx = 0; basis_idx < bases.size(); ++basis_idx) {
         const auto& basis = bases[basis_idx];
-        buffer.clear();
-        buffer.reserve(static_cast<std::size_t>(T));
+        size_t start[3] = { 0, static_cast<size_t>(y_start), static_cast<size_t>(x_start) };
+        size_t count[3] = { T, static_cast<size_t>(y_count), static_cast<size_t>(x_count) };
 
-        for (const auto& span : spans) {
-            if (span.length == 0) {
-                continue;
-            }
+        std::cout << "Loading block y=[" << y_start << ", " << (y_start + y_count)
+                  << ") x=[" << x_start << ", " << (x_start + x_count) << ") across "
+                  << T << " time steps from " << basis.path << std::endl;
 
-            buffer.resize(static_cast<std::size_t>(T) * span.length);
-            size_t start[3] = { 0, static_cast<size_t>(span.y), static_cast<size_t>(span.x_start) };
-            size_t count[3] = { static_cast<size_t>(T), 1, span.length };
+        int retval = nc_get_vara_double(basis.ncid, basis.varid, start, count, buffer.data());
+        if (retval != NC_NOERR) {
+            std::cerr << "Failed to read variable data from " << basis.path
+                      << " : " << nc_strerror(retval) << std::endl;
+            return {};
+        }
 
-            std::cout << "Loading span y=" << span.y << " x=[" << span.x_start << ", "
-                      << (span.x_start + static_cast<int>(span.length)) << ") across "
-                      << T << " time steps from " << basis.path << std::endl;
+        std::cout << "Completed block load from " << basis.path << std::endl;
 
-            int retval = nc_get_vara_double(basis.ncid, basis.varid, start, count, buffer.data());
-            if (retval != NC_NOERR) {
-                std::cerr << "Failed to read variable data from " << basis.path
-                          << " : " << nc_strerror(retval) << std::endl;
-                return {};
-            }
-
-            std::cout << "Completed span load from " << basis.path << std::endl;
-
-            for (std::size_t local = 0; local < span.length; ++local) {
-                std::size_t dest_index = span.offset + local;
-                if (dest_index >= total_points) {
-                    continue;
-                }
-                auto& dest_series = series[basis_idx][dest_index];
-                for (int t = 0; t < T; ++t) {
-                    dest_series[static_cast<std::size_t>(t)] = buffer[static_cast<std::size_t>(t) * span.length + local];
+        for (std::size_t t = 0; t < T; ++t) {
+            for (int y = 0; y < y_count; ++y) {
+                for (int x = 0; x < x_count; ++x) {
+                    std::size_t index = (t * static_cast<std::size_t>(y_count) + static_cast<std::size_t>(y))
+                        * static_cast<std::size_t>(x_count) + static_cast<std::size_t>(x);
+                    data[basis_idx][t][static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] = buffer[index];
                 }
             }
         }
     }
 
-    return series;
+    return data;
 }

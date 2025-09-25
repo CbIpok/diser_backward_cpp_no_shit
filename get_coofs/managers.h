@@ -7,13 +7,6 @@
 #include "stable_data_structs.h"
 #include <optional>
 
-struct PointSpan {
-    int y = 0;
-    int x_start = 0;
-    std::size_t length = 0;
-    std::size_t offset = 0;
-};
-
 class WaveManager {
 public:
     explicit WaveManager(const std::string& nc_file_);
@@ -27,10 +20,11 @@ public:
     const std::string& path() const noexcept { return nc_file; }
     bool get_dimensions(std::size_t& T, std::size_t& Y, std::size_t& X) const;
 
-    std::vector<std::vector<double>> load_point_spans(
-        const std::vector<PointSpan>& spans,
-        int T,
-        std::size_t total_points) const;
+    std::vector<std::vector<std::vector<double>>> load_block(
+        int y_start,
+        int y_count,
+        int x_start,
+        int x_count) const;
 
 private:
     int ncid = -1;
@@ -53,10 +47,11 @@ public:
     bool get_dimensions(std::size_t& T, std::size_t& Y, std::size_t& X) const;
     const std::string& directory() const noexcept { return folder; }
 
-    std::vector<std::vector<std::vector<double>>> load_point_spans(
-        const std::vector<PointSpan>& spans,
-        int T,
-        std::size_t total_points) const;
+    std::vector<std::vector<std::vector<std::vector<double>>>> load_block(
+        int y_start,
+        int y_count,
+        int x_start,
+        int x_count) const;
 
 private:
     struct BasisEntry {
