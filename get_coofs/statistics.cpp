@@ -5,13 +5,11 @@
 #include <Eigen/Dense>
 
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <iostream>
 #include <iterator>
 #include <map>
-#include <mutex>
 #include <thread>
 
 namespace bg = boost::geometry;
@@ -115,123 +113,112 @@ void calculate_statistics(const std::string& root_folder,
         thread_count = 1;
     }
 
-    std::size_t per_thread_limit = thread_count > 0 ? MAX_MEMORY_BYTES / thread_count : MAX_MEMORY_BYTES;
-    if (per_thread_limit == 0) {
-        per_thread_limit = MAX_MEMORY_BYTES;
-    }
-    std::size_t max_points_per_subchunk = per_thread_limit / bytes_per_point;
-    if (max_points_per_subchunk == 0) {
-        max_points_per_subchunk = 1;
-    }
-
-    std::vector<std::pair<std::size_t, std::size_t>> thread_ranges(thread_count);
-    std::size_t base_chunk = inside_points.size() / thread_count;
-    std::size_t remainder = inside_points.size() % thread_count;
-    std::size_t offset = 0;
-    for (unsigned t = 0; t < thread_count; ++t) {
-        std::size_t chunk = base_chunk + (t < remainder ? 1 : 0);
-        thread_ranges[t] = { offset, offset + chunk };
-        offset += chunk;
+    std::size_t max_points_per_chunk = MAX_MEMORY_BYTES / bytes_per_point;
+    if (max_points_per_chunk == 0) {
+        max_points_per_chunk = 1;
     }
 
     std::map<int, std::vector<CoefficientData>> aggregated_rows;
-    std::mutex aggregated_mutex;
-    std::atomic<uint64_t> total_load_ms{ 0 };
-    std::atomic<uint64_t> total_proc_ms{ 0 };
-    std::atomic<bool> had_error{ false };
+    uint64_t total_load_ms = 0;
+    uint64_t total_proc_ms = 0;
+    bool had_error = false;
 
-    auto worker = [&](unsigned thread_index, std::size_t begin, std::size_t end) {
-        if (begin >= end) {
-            return;
+    for (std::size_t chunk_begin = 0; chunk_begin < inside_points.size() && !had_error; chunk_begin += max_points_per_chunk) {
+        std::size_t chunk_end = std::min(chunk_begin + max_points_per_chunk, inside_points.size());
+        std::size_t chunk_size = chunk_end - chunk_begin;
+        const Point2i* chunk_points = inside_points.data() + chunk_begin;
+
+        std::vector<double> wave_buffer;
+        std::vector<std::vector<double>> basis_buffer;
+
+        std::cout << "LOAD_START thread=-1 points=" << chunk_size << "\n";
+        auto load_start = std::chrono::steady_clock::now();
+        if (!wave_manager.load_points(chunk_points, chunk_size, wave_buffer)) {
+            had_error = true;
+            break;
+        }
+        if (!basis_manager.load_points(chunk_points, chunk_size, basis_buffer)) {
+            had_error = true;
+            break;
+        }
+        auto load_end = std::chrono::steady_clock::now();
+        auto load_ms = std::chrono::duration_cast<std::chrono::milliseconds>(load_end - load_start).count();
+        total_load_ms += static_cast<uint64_t>(load_ms);
+        std::cout << "LOAD_END thread=-1 points=" << chunk_size << " ms=" << load_ms << "\n";
+
+        unsigned active_threads = std::min<unsigned>(thread_count, static_cast<unsigned>(chunk_size));
+        if (active_threads == 0) {
+            active_threads = 1;
         }
 
-        std::map<int, std::vector<CoefficientData>> local_rows;
-        uint64_t local_load = 0;
-        uint64_t local_proc = 0;
+        std::vector<std::map<int, std::vector<CoefficientData>>> local_rows(active_threads);
+        std::vector<uint64_t> local_proc_ms(active_threads, 0);
 
-        std::size_t current = begin;
-        while (current < end && !had_error.load(std::memory_order_relaxed)) {
-            std::size_t remaining = end - current;
-            std::size_t take = std::min(remaining, max_points_per_subchunk);
-            const Point2i* sub_points = inside_points.data() + current;
+        std::size_t base_chunk = chunk_size / active_threads;
+        std::size_t remainder = chunk_size % active_threads;
+        std::size_t offset = 0;
 
-            std::vector<double> wave_buffer;
-            std::vector<std::vector<double>> basis_buffer;
+        std::vector<std::thread> workers;
+        workers.reserve(active_threads);
 
-            std::cout << "LOAD_START thread=" << thread_index << " points=" << take << "\n";
-            auto load_start = std::chrono::steady_clock::now();
-            if (!wave_manager.load_points(sub_points, take, wave_buffer)) {
-                had_error.store(true, std::memory_order_relaxed);
-                break;
-            }
-            if (!basis_manager.load_points(sub_points, take, basis_buffer)) {
-                had_error.store(true, std::memory_order_relaxed);
-                break;
-            }
-            auto load_end = std::chrono::steady_clock::now();
-            auto load_ms = std::chrono::duration_cast<std::chrono::milliseconds>(load_end - load_start).count();
-            local_load += static_cast<uint64_t>(load_ms);
-            std::cout << "LOAD_END thread=" << thread_index << " points=" << take << " ms=" << load_ms << "\n";
+        for (unsigned t = 0; t < active_threads; ++t) {
+            std::size_t take = base_chunk + (t < remainder ? 1 : 0);
+            std::size_t local_begin = offset;
+            std::size_t local_end = offset + take;
+            offset = local_end;
 
-            std::cout << "PROC_START thread=" << thread_index << " points=" << take << "\n";
-            auto proc_start = std::chrono::steady_clock::now();
-
-            for (std::size_t idx = 0; idx < take; ++idx) {
-                const Point2i& pt = sub_points[idx];
-                Eigen::Map<const Eigen::VectorXd> wave_vec(&wave_buffer[idx * wave_info.t], static_cast<Eigen::Index>(wave_info.t));
-                Eigen::MatrixXd B(n_basis, static_cast<Eigen::Index>(wave_info.t));
-                for (int b = 0; b < n_basis; ++b) {
-                    Eigen::Map<const Eigen::VectorXd> basis_vec(&basis_buffer[static_cast<std::size_t>(b)][idx * wave_info.t], static_cast<Eigen::Index>(wave_info.t));
-                    B.row(static_cast<Eigen::Index>(b)) = basis_vec.transpose();
+            workers.emplace_back([&, t, local_begin, local_end, chunk_points]() {
+                if (local_begin >= local_end) {
+                    return;
                 }
 
-                Eigen::VectorXd coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
-                Eigen::VectorXd approx = B.transpose() * coefs;
-                double err = std::sqrt((wave_vec - approx).squaredNorm() / static_cast<double>(wave_info.t));
+                std::size_t local_count = local_end - local_begin;
+                std::cout << "PROC_START thread=" << t << " points=" << local_count << "\n";
+                auto proc_start = std::chrono::steady_clock::now();
 
-                local_rows[bg::get<1>(pt)].push_back({ pt, std::move(coefs), err });
-            }
+                for (std::size_t idx = local_begin; idx < local_end; ++idx) {
+                    const Point2i& pt = chunk_points[idx];
+                    Eigen::Map<const Eigen::VectorXd> wave_vec(&wave_buffer[idx * wave_info.t], static_cast<Eigen::Index>(wave_info.t));
+                    Eigen::MatrixXd B(n_basis, static_cast<Eigen::Index>(wave_info.t));
+                    for (int b = 0; b < n_basis; ++b) {
+                        Eigen::Map<const Eigen::VectorXd> basis_vec(&basis_buffer[static_cast<std::size_t>(b)][idx * wave_info.t], static_cast<Eigen::Index>(wave_info.t));
+                        B.row(static_cast<Eigen::Index>(b)) = basis_vec.transpose();
+                    }
 
-            auto proc_end = std::chrono::steady_clock::now();
-            auto proc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(proc_end - proc_start).count();
-            local_proc += static_cast<uint64_t>(proc_ms);
-            std::cout << "PROC_END thread=" << thread_index << " points=" << take << " ms=" << proc_ms << "\n";
+                    Eigen::VectorXd coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
+                    Eigen::VectorXd approx = B.transpose() * coefs;
+                    double err = std::sqrt((wave_vec - approx).squaredNorm() / static_cast<double>(wave_info.t));
 
-            current += take;
+                    local_rows[t][bg::get<1>(pt)].push_back({ pt, std::move(coefs), err });
+                }
+
+                auto proc_end = std::chrono::steady_clock::now();
+                auto proc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(proc_end - proc_start).count();
+                local_proc_ms[t] += static_cast<uint64_t>(proc_ms);
+                std::cout << "PROC_END thread=" << t << " points=" << local_count << " ms=" << proc_ms << "\n";
+            });
         }
 
-        {
-            std::lock_guard<std::mutex> lock(aggregated_mutex);
-            for (auto& [y, row] : local_rows) {
+        for (auto& worker_thread : workers) {
+            worker_thread.join();
+        }
+
+        for (unsigned t = 0; t < active_threads; ++t) {
+            total_proc_ms += local_proc_ms[t];
+            for (auto& [y, row] : local_rows[t]) {
                 auto& dst = aggregated_rows[y];
                 dst.insert(dst.end(), std::make_move_iterator(row.begin()), std::make_move_iterator(row.end()));
             }
         }
-
-        total_load_ms.fetch_add(local_load, std::memory_order_relaxed);
-        total_proc_ms.fetch_add(local_proc, std::memory_order_relaxed);
-    };
-
-    std::vector<std::thread> workers;
-    workers.reserve(thread_count);
-    for (unsigned t = 0; t < thread_count; ++t) {
-        auto [begin, end_range] = thread_ranges[t];
-        workers.emplace_back(worker, t, begin, end_range);
-    }
-
-    for (auto& thread : workers) {
-        thread.join();
     }
 
     uint64_t total_points = static_cast<uint64_t>(inside_points.size());
-    uint64_t load_total = total_load_ms.load(std::memory_order_relaxed);
-    uint64_t proc_total = total_proc_ms.load(std::memory_order_relaxed);
     std::cout << "SUMMARY points_total=" << total_points
         << " threads=" << thread_count
-        << " load_ms_total=" << load_total
-        << " proc_ms_total=" << proc_total << "\n";
+        << " load_ms_total=" << total_load_ms
+        << " proc_ms_total=" << total_proc_ms << "\n";
 
-    if (had_error.load(std::memory_order_relaxed)) {
+    if (had_error) {
         return;
     }
 
