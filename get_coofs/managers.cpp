@@ -137,3 +137,6 @@ std::vector<std::vector<std::vector<std::vector<double>>>> BasisManager::get_fk_
     }
     return fk;
 }
+std::size_t BasisManager::basis_count() const {
+    return getSortedFileList(folder).size();
+}

@@ -7,10 +7,13 @@
 using Vector = Eigen::VectorXd;
 using Matrix = Eigen::MatrixXd;
 
-// Функция аппроксимации с использованием ортогонализации (реализация в approx_orto.cpp)
+inline constexpr const char* kZeroNormVectorError =
+    "Р”РµР»РµРЅРёРµ РЅР° РЅРѕР»СЊ: РЅРѕСЂРјРёСЂРѕРІР°РЅРЅС‹Р№ РІРµРєС‚РѕСЂ СЃР»РёС€РєРѕРј Р±Р»РёР·РѕРє Рє РЅСѓР»СЋ.";
+
+// Р¤СѓРЅРєС†РёСЏ Р°РїРїСЂРѕРєСЃРёРјР°С†РёРё СЃ РёСЃРїРѕР»СЊР·РѕРІР°РЅРёРµРј РѕСЂС‚РѕРіРѕРЅР°Р»РёР·Р°С†РёРё (СЂРµР°Р»РёР·Р°С†РёСЏ РІ approx_orto.cpp)
 Vector approximate_with_non_orthogonal_basis_orto(const Vector& x, const Matrix& f_k);
 
-// Обёртка для работы со стандартными векторами
+// РћР±С‘СЂС‚РєР° РґР»СЏ СЂР°Р±РѕС‚С‹ СЃРѕ СЃС‚Р°РЅРґР°СЂС‚РЅС‹РјРё РІРµРєС‚РѕСЂР°РјРё
 std::vector<double> approximate_with_non_orthogonal_basis_orto_std(
     const std::vector<double>& vector,
     const std::vector<std::vector<double>>& basis);
