@@ -23,7 +23,8 @@ void calculate_statistics(const std::string& root_folder,
     const std::string& wave,
     const std::string& basis,
     const AreaConfigurationInfo& area_config,
-    CoeffMatrix& statistics_orto);
+    CoeffMatrix& statistics_orto,
+    std::vector<int>& y_indices);
 
 // ������� ��� ���������� ���������� � JSON-����
 void save_and_plot_statistics(const std::string& root_folder,

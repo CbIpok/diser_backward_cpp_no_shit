@@ -6,10 +6,10 @@
 #include "stable_data_structs.h"
 #include "statistics.h"
 
-// Для удобства
+// Г„Г«Гї ГіГ¤Г®ГЎГ±ГІГўГ 
 namespace fs = std::filesystem;
 
-// Функция копирования папки (рекурсивно)
+// Г”ГіГ­ГЄГ¶ГЁГї ГЄГ®ГЇГЁГ°Г®ГўГ Г­ГЁГї ГЇГ ГЇГЄГЁ (Г°ГҐГЄГіГ°Г±ГЁГўГ­Г®)
 bool copyFolder(const std::string& source, const std::string& destination) {
     try {
         fs::create_directories(destination);
@@ -20,56 +20,56 @@ bool copyFolder(const std::string& source, const std::string& destination) {
         }
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "Ошибка копирования папки: " << e.what() << std::endl;
+        std::cerr << "ГЋГёГЁГЎГЄГ  ГЄГ®ГЇГЁГ°Г®ГўГ Г­ГЁГї ГЇГ ГЇГЄГЁ: " << e.what() << std::endl;
         return false;
     }
     return true;
 }
 
-// Функция удаления папки
+// Г”ГіГ­ГЄГ¶ГЁГї ГіГ¤Г Г«ГҐГ­ГЁГї ГЇГ ГЇГЄГЁ
 bool deleteFolder(const std::string& folder) {
     try {
         fs::remove_all(folder);
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "Ошибка удаления папки: " << e.what() << std::endl;
+        std::cerr << "ГЋГёГЁГЎГЄГ  ГіГ¤Г Г«ГҐГ­ГЁГї ГЇГ ГЇГЄГЁ: " << e.what() << std::endl;
         return false;
     }
     return true;
 }
 
-// Функция копирования файла
+// Г”ГіГ­ГЄГ¶ГЁГї ГЄГ®ГЇГЁГ°Г®ГўГ Г­ГЁГї ГґГ Г©Г«Г 
 bool copyFile(const std::string& source, const std::string& destination) {
     try {
         fs::create_directories(fs::path(destination).parent_path());
         fs::copy_file(source, destination, fs::copy_options::overwrite_existing);
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "Ошибка копирования файла: " << e.what() << std::endl;
+        std::cerr << "ГЋГёГЁГЎГЄГ  ГЄГ®ГЇГЁГ°Г®ГўГ Г­ГЁГї ГґГ Г©Г«Г : " << e.what() << std::endl;
         return false;
     }
     return true;
 }
 
-// Функция удаления файла
+// Г”ГіГ­ГЄГ¶ГЁГї ГіГ¤Г Г«ГҐГ­ГЁГї ГґГ Г©Г«Г 
 bool deleteFile(const std::string& file) {
     try {
         fs::remove(file);
     }
     catch (fs::filesystem_error& e) {
-        std::cerr << "Ошибка удаления файла: " << e.what() << std::endl;
+        std::cerr << "ГЋГёГЁГЎГЄГ  ГіГ¤Г Г«ГҐГ­ГЁГї ГґГ Г©Г«Г : " << e.what() << std::endl;
         return false;
     }
     return true;
 }
 
-// Функция проверки существования файла
+// Г”ГіГ­ГЄГ¶ГЁГї ГЇГ°Г®ГўГҐГ°ГЄГЁ Г±ГіГ№ГҐГ±ГІГўГ®ГўГ Г­ГЁГї ГґГ Г©Г«Г 
 bool fileExists(const std::string& file) {
     return fs::exists(file);
 }
 
-// Предполагается, что AreaConfigurationInfo и функция save_and_plot_statistics уже определены
-// Например:
+// ГЏГ°ГҐГ¤ГЇГ®Г«Г ГЈГ ГҐГІГ±Гї, Г·ГІГ® AreaConfigurationInfo ГЁ ГґГіГ­ГЄГ¶ГЁГї save_and_plot_statistics ГіГ¦ГҐ Г®ГЇГ°ГҐГ¤ГҐГ«ГҐГ­Г»
+// ГЌГ ГЇГ°ГЁГ¬ГҐГ°:
 // class AreaConfigurationInfo { /* ... */ };
 // void save_and_plot_statistics(const std::string&, const std::string&, const std::string&, const std::string&, const AreaConfigurationInfo&);
 
@@ -79,83 +79,83 @@ int runWithPrePost(const std::string& root_folder,
     const std::string& wave,
     const std::string& basis,
     const AreaConfigurationInfo& area_config) {
-    // Формируем пути для копирования папки basis
+    // Г”Г®Г°Г¬ГЁГ°ГіГҐГ¬ ГЇГіГІГЁ Г¤Г«Гї ГЄГ®ГЇГЁГ°Г®ГўГ Г­ГЁГї ГЇГ ГЇГЄГЁ basis
     std::string sourceBasisFolder = root_folder + "/" + bath + "/" + basis;
     std::string destBathFolder = cache_folder + "/" + bath;
     std::string destBasisFolder = destBathFolder + "/" + basis;
 
-    // Копируем папку basis
+    // ГЉГ®ГЇГЁГ°ГіГҐГ¬ ГЇГ ГЇГЄГі basis
     bool copiedFolder = copyFolder(sourceBasisFolder, destBasisFolder);
     if (!copiedFolder) {
-        std::cerr << "Не удалось скопировать папку: " << sourceBasisFolder << std::endl;
+        std::cerr << "ГЌГҐ ГіГ¤Г Г«Г®Г±Гј Г±ГЄГ®ГЇГЁГ°Г®ГўГ ГІГј ГЇГ ГЇГЄГі: " << sourceBasisFolder << std::endl;
         return -1;
     }
 
-    // Формируем пути для файла wave
+    // Г”Г®Г°Г¬ГЁГ°ГіГҐГ¬ ГЇГіГІГЁ Г¤Г«Гї ГґГ Г©Г«Г  wave
     std::string sourceWaveFile = root_folder + "/" + bath + "/" + wave + ".nc";
     std::string destWaveFile = destBathFolder + "/" + wave + ".nc";
 
     bool fileAlreadyExists = fileExists(destWaveFile);
     bool copiedFile = false;
 
-    // Если файл не существует в целевой папке и исходный файл есть – копируем
+    // Г…Г±Г«ГЁ ГґГ Г©Г« Г­ГҐ Г±ГіГ№ГҐГ±ГІГўГіГҐГІ Гў Г¶ГҐГ«ГҐГўГ®Г© ГЇГ ГЇГЄГҐ ГЁ ГЁГ±ГµГ®Г¤Г­Г»Г© ГґГ Г©Г« ГҐГ±ГІГј вЂ“ ГЄГ®ГЇГЁГ°ГіГҐГ¬
     if (!fileAlreadyExists && fs::exists(sourceWaveFile)) {
         copiedFile = copyFile(sourceWaveFile, destWaveFile);
         if (!copiedFile) {
-            std::cerr << "Не удалось скопировать файл: " << sourceWaveFile << std::endl;
-            // Если не удалось скопировать файл, удаляем ранее скопированную папку
+            std::cerr << "ГЌГҐ ГіГ¤Г Г«Г®Г±Гј Г±ГЄГ®ГЇГЁГ°Г®ГўГ ГІГј ГґГ Г©Г«: " << sourceWaveFile << std::endl;
+            // Г…Г±Г«ГЁ Г­ГҐ ГіГ¤Г Г«Г®Г±Гј Г±ГЄГ®ГЇГЁГ°Г®ГўГ ГІГј ГґГ Г©Г«, ГіГ¤Г Г«ГїГҐГ¬ Г°Г Г­ГҐГҐ Г±ГЄГ®ГЇГЁГ°Г®ГўГ Г­Г­ГіГѕ ГЇГ ГЇГЄГі
             deleteFolder(destBasisFolder);
             return -1;
         }
     }
 
-    // Выполняем основную функцию
+    // Г‚Г»ГЇГ®Г«Г­ГїГҐГ¬ Г®Г±Г­Г®ГўГ­ГіГѕ ГґГіГ­ГЄГ¶ГЁГѕ
     save_and_plot_statistics(cache_folder, bath, wave, basis, area_config);
 
-    // Удаляем скопированную папку basis из кэша
+    // Г“Г¤Г Г«ГїГҐГ¬ Г±ГЄГ®ГЇГЁГ°Г®ГўГ Г­Г­ГіГѕ ГЇГ ГЇГЄГі basis ГЁГ§ ГЄГЅГёГ 
     if (!deleteFolder(destBasisFolder)) {
-        std::cerr << "Не удалось удалить папку: " << destBasisFolder << std::endl;
+        std::cerr << "ГЌГҐ ГіГ¤Г Г«Г®Г±Гј ГіГ¤Г Г«ГЁГІГј ГЇГ ГЇГЄГі: " << destBasisFolder << std::endl;
     }
 
-    // Если файл был скопирован (то есть его не было заранее) – удаляем его
+    // Г…Г±Г«ГЁ ГґГ Г©Г« ГЎГ»Г« Г±ГЄГ®ГЇГЁГ°Г®ГўГ Г­ (ГІГ® ГҐГ±ГІГј ГҐГЈГ® Г­ГҐ ГЎГ»Г«Г® Г§Г Г°Г Г­ГҐГҐ) вЂ“ ГіГ¤Г Г«ГїГҐГ¬ ГҐГЈГ®
     if (copiedFile) {
         if (!deleteFile(destWaveFile)) {
-            std::cerr << "Не удалось удалить файл: " << destWaveFile << std::endl;
+            std::cerr << "ГЌГҐ ГіГ¤Г Г«Г®Г±Гј ГіГ¤Г Г«ГЁГІГј ГґГ Г©Г«: " << destWaveFile << std::endl;
         }
     }
 
     return 0;
 }
-// Функция для проведения тестов
+// Г”ГіГ­ГЄГ¶ГЁГї Г¤Г«Гї ГЇГ°Г®ГўГҐГ¤ГҐГ­ГЁГї ГІГҐГ±ГІГ®Гў
 void run_tests() {
-    // Размерности для тестовых случаев
+    // ГђГ Г§Г¬ГҐГ°Г­Г®Г±ГІГЁ Г¤Г«Гї ГІГҐГ±ГІГ®ГўГ»Гµ Г±Г«ГіГ·Г ГҐГў
     std::vector<int> dimensions = { 3, 4, 5, 6, 8 };
-    // Порог допуска (например, 1e-6)
+    // ГЏГ®Г°Г®ГЈ Г¤Г®ГЇГіГ±ГЄГ  (Г­Г ГЇГ°ГЁГ¬ГҐГ°, 1e-6)
     double tol = 1e-6;
     bool all_passed = true;
 
     std::cout << "tests (approximate_with_non_orthogonal_basis_orto):\n";
 
     for (int n : dimensions) {
-        // Генерируем случайную квадратную матрицу n x n,
-        // представляющую базис (каждая строка – базисный вектор).
+        // ГѓГҐГ­ГҐГ°ГЁГ°ГіГҐГ¬ Г±Г«ГіГ·Г Г©Г­ГіГѕ ГЄГўГ Г¤Г°Г ГІГ­ГіГѕ Г¬Г ГІГ°ГЁГ¶Гі n x n,
+        // ГЇГ°ГҐГ¤Г±ГІГ ГўГ«ГїГѕГ№ГіГѕ ГЎГ Г§ГЁГ± (ГЄГ Г¦Г¤Г Гї Г±ГІГ°Г®ГЄГ  вЂ“ ГЎГ Г§ГЁГ±Г­Г»Г© ГўГҐГЄГІГ®Г°).
         Eigen::MatrixXd M;
-        // Обеспечиваем обратимость (регенерируем, если определитель слишком мал)
+        // ГЋГЎГҐГ±ГЇГҐГ·ГЁГўГ ГҐГ¬ Г®ГЎГ°Г ГІГЁГ¬Г®Г±ГІГј (Г°ГҐГЈГҐГ­ГҐГ°ГЁГ°ГіГҐГ¬, ГҐГ±Г«ГЁ Г®ГЇГ°ГҐГ¤ГҐГ«ГЁГІГҐГ«Гј Г±Г«ГЁГёГЄГ®Г¬ Г¬Г Г«)
         do {
             M = Eigen::MatrixXd::Random(n, n);
         } while (std::abs(M.determinant()) < 1e-3);
 
-        // Генерируем случайный вектор коэффициентов c длины n.
+        // ГѓГҐГ­ГҐГ°ГЁГ°ГіГҐГ¬ Г±Г«ГіГ·Г Г©Г­Г»Г© ГўГҐГЄГІГ®Г° ГЄГ®ГЅГґГґГЁГ¶ГЁГҐГ­ГІГ®Гў c Г¤Г«ГЁГ­Г» n.
         Eigen::VectorXd c = Eigen::VectorXd::Random(n);
-        // Вычисляем вектор x как линейную комбинацию базисных векторов:
+        // Г‚Г»Г·ГЁГ±Г«ГїГҐГ¬ ГўГҐГЄГІГ®Г° x ГЄГ ГЄ Г«ГЁГ­ГҐГ©Г­ГіГѕ ГЄГ®Г¬ГЎГЁГ­Г Г¶ГЁГѕ ГЎГ Г§ГЁГ±Г­Г»Гµ ГўГҐГЄГІГ®Г°Г®Гў:
         // x = c[0]*M.row(0) + ... + c[n-1]*M.row(n-1).
-        // Чтобы получить столбцовый вектор x, вычисляем:
+        // Г—ГІГ®ГЎГ» ГЇГ®Г«ГіГ·ГЁГІГј Г±ГІГ®Г«ГЎГ¶Г®ГўГ»Г© ГўГҐГЄГІГ®Г° x, ГўГ»Г·ГЁГ±Г«ГїГҐГ¬:
         Eigen::VectorXd x = M.transpose() * c;
 
-        // Вычисляем коэффициенты с использованием функции аппроксимации.
+        // Г‚Г»Г·ГЁГ±Г«ГїГҐГ¬ ГЄГ®ГЅГґГґГЁГ¶ГЁГҐГ­ГІГ» Г± ГЁГ±ГЇГ®Г«ГјГ§Г®ГўГ Г­ГЁГҐГ¬ ГґГіГ­ГЄГ¶ГЁГЁ Г ГЇГЇГ°Г®ГЄГ±ГЁГ¬Г Г¶ГЁГЁ.
         Eigen::VectorXd b = approximate_with_non_orthogonal_basis_orto(x, M);
 
-        // Считаем ошибку (норма разности)
+        // Г‘Г·ГЁГІГ ГҐГ¬ Г®ГёГЁГЎГЄГі (Г­Г®Г°Г¬Г  Г°Г Г§Г­Г®Г±ГІГЁ)
         double error = (b - c).norm();
         std::cout << "dim " << n << ": err = " << error;
         if (error < tol) {
@@ -183,9 +183,9 @@ int main() {
 #else
 int main() {
 
-    // Запускаем тесты, если необходимо
+    AreaConfigurationInfo area_config("T:/tsunami_res_folder/info/new_zones.json");
     run_tests();
-    // Параметры проекта
+    // ГЏГ Г°Г Г¬ГҐГІГ°Г» ГЇГ°Г®ГҐГЄГІГ 
     std::string root_folder = "T:/tsunami_res_folder";
     std::string cache_folder = "C:/dmitrienkomy/cache/";
     std::string bath = "y_200_2000";
@@ -195,10 +195,10 @@ int main() {
         "basis_6"
     };
 
-    // Инициализация конфигурации области (файл zones.json должен быть корректным)
+    // Г€Г­ГЁГ¶ГЁГ Г«ГЁГ§Г Г¶ГЁГї ГЄГ®Г­ГґГЁГЈГіГ°Г Г¶ГЁГЁ Г®ГЎГ«Г Г±ГІГЁ (ГґГ Г©Г« zones.json Г¤Г®Г«Г¦ГҐГ­ ГЎГ»ГІГј ГЄГ®Г°Г°ГҐГЄГІГ­Г»Г¬)
     AreaConfigurationInfo area_config("T:/tsunami_res_folder/info/zones.json");
 
-    // Вычисляем и сохраняем статистику аппроксимации
+    // Г‚Г»Г·ГЁГ±Г«ГїГҐГ¬ ГЁ Г±Г®ГµГ°Г Г­ГїГҐГ¬ Г±ГІГ ГІГЁГ±ГІГЁГЄГі Г ГЇГЇГ°Г®ГЄГ±ГЁГ¬Г Г¶ГЁГЁ
     for (auto& basis : folderNames)
     {
         runWithPrePost(root_folder, cache_folder, bath, wave, basis, area_config);

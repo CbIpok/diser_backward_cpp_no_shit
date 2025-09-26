@@ -84,6 +84,36 @@ std::vector<std::vector<std::vector<double>>> WaveManager::load_mariogramm_by_re
     return read_nc_file(nc_file, y_start, y_end);
 }
 
+std::tuple<std::size_t, std::size_t, std::size_t> WaveManager::get_dimensions() const {
+    int ncid;
+    if (open_nc_file(nc_file, ncid) != NC_NOERR) {
+        return { 0, 0, 0 };
+    }
+
+    int varid;
+    if (nc_inq_varid(ncid, "height", &varid) != NC_NOERR) {
+        std::cerr << "Переменная 'height' не найдена в " << nc_file << std::endl;
+        nc_close(ncid);
+        return { 0, 0, 0 };
+    }
+
+    int dimids[3];
+    size_t T = 0, Y = 0, X = 0;
+    int retval = nc_inq_vardimid(ncid, varid, dimids);
+    if (retval != NC_NOERR) {
+        std::cerr << "Не удалось получить размеры переменной 'height' в " << nc_file << std::endl;
+        nc_close(ncid);
+        return { 0, 0, 0 };
+    }
+
+    nc_inq_dimlen(ncid, dimids[0], &T);
+    nc_inq_dimlen(ncid, dimids[1], &Y);
+    nc_inq_dimlen(ncid, dimids[2], &X);
+
+    nc_close(ncid);
+    return { T, Y, X };
+}
+
 
 // ������� ��� ���������� ������� �� ����� �����
 int extractIndex(const fs::path& filePath) {
@@ -136,4 +166,8 @@ std::vector<std::vector<std::vector<std::vector<double>>>> BasisManager::get_fk_
         }
     }
     return fk;
+}
+
+std::size_t BasisManager::basis_count() const {
+    return getSortedFileList(folder).size();
 }
