@@ -3,8 +3,8 @@
 #include <cmath>
 #include <fstream>
 #include <iomanip>
+#include <stdexcept>
 
-// Функция для скалярного произведения двух векторов с использованием Eigen
 inline double dot_product(const Vector& v1, const Vector& v2) {
     return v1.dot(v2);
 }
@@ -23,37 +23,37 @@ Matrix gram_schmidt(const Matrix& vectors) {
 
                 double denominator = dot_product(orthogonal_vectors.row(j), orthogonal_vectors.row(j));
 
-                // Проверка деления на ноль (или слишком малое значение)
+                // ГЏГ°Г®ГўГҐГ°ГЄГ  Г¤ГҐГ«ГҐГ­ГЁГї Г­Г  Г­Г®Г«Гј (ГЁГ«ГЁ Г±Г«ГЁГёГЄГ®Г¬ Г¬Г Г«Г®ГҐ Г§Г­Г Г·ГҐГ­ГЁГҐ)
                 if (std::abs(denominator) < 1e-10) {
                     std::cout << "f: " << orthogonal_vectors.row(j) << std::endl;
-                    throw std::runtime_error("Деление на ноль: нормированный вектор слишком близок к нулю.");
+                    throw std::runtime_error("Г„ГҐГ«ГҐГ­ГЁГҐ Г­Г  Г­Г®Г«Гј: Г­Г®Г°Г¬ГЁГ°Г®ГўГ Г­Г­Г»Г© ГўГҐГЄГІГ®Г° Г±Г«ГЁГёГЄГ®Г¬ ГЎГ«ГЁГ§Г®ГЄ ГЄ Г­ГіГ«Гѕ.");
                 }
                 double scale = dot_product(new_vector, orthogonal_vectors.row(j)) / denominator;
-                // Проверка scale на NaN
+                // ГЏГ°Г®ГўГҐГ°ГЄГ  scale Г­Г  NaN
                 if (std::isnan(scale)) {
-                    throw std::runtime_error("Обнаружено NaN при вычислении коэффициента масштабирования.");
+                    throw std::runtime_error("ГЋГЎГ­Г Г°ГіГ¦ГҐГ­Г® NaN ГЇГ°ГЁ ГўГ»Г·ГЁГ±Г«ГҐГ­ГЁГЁ ГЄГ®ГЅГґГґГЁГ¶ГЁГҐГ­ГІГ  Г¬Г Г±ГёГІГ ГЎГЁГ°Г®ГўГ Г­ГЁГї.");
                 }
                 new_vector -= scale * orthogonal_vectors.row(j);
 
-                // Проверка каждого элемента new_vector на NaN
+                // ГЏГ°Г®ГўГҐГ°ГЄГ  ГЄГ Г¦Г¤Г®ГЈГ® ГЅГ«ГҐГ¬ГҐГ­ГІГ  new_vector Г­Г  NaN
                 for (int k = 0; k < new_vector.size(); ++k) {
                     if (std::isnan(new_vector[k])) {
-                        throw std::runtime_error("Обнаружено NaN в векторе после вычитания.");
+                        throw std::runtime_error("ГЋГЎГ­Г Г°ГіГ¦ГҐГ­Г® NaN Гў ГўГҐГЄГІГ®Г°ГҐ ГЇГ®Г±Г«ГҐ ГўГ»Г·ГЁГІГ Г­ГЁГї.");
                     }
                 }
             }
             orthogonal_vectors.row(i) = new_vector;
         }
-        // Альтернативно, можно проверить всю строку с использованием встроенной функции Eigen:
+        // ГЂГ«ГјГІГҐГ°Г­Г ГІГЁГўГ­Г®, Г¬Г®Г¦Г­Г® ГЇГ°Г®ГўГҐГ°ГЁГІГј ГўГ±Гѕ Г±ГІГ°Г®ГЄГі Г± ГЁГ±ГЇГ®Г«ГјГ§Г®ГўГ Г­ГЁГҐГ¬ ГўГ±ГІГ°Г®ГҐГ­Г­Г®Г© ГґГіГ­ГЄГ¶ГЁГЁ Eigen:
         if (orthogonal_vectors.row(i).hasNaN()) {
-            throw std::runtime_error("Обнаружено NaN в вычисленной ортогональной строке.");
+            throw std::runtime_error("ГЋГЎГ­Г Г°ГіГ¦ГҐГ­Г® NaN Гў ГўГ»Г·ГЁГ±Г«ГҐГ­Г­Г®Г© Г®Г°ГІГ®ГЈГ®Г­Г Г«ГјГ­Г®Г© Г±ГІГ°Г®ГЄГҐ.");
         }
     }
     return orthogonal_vectors;
 }
 
 
-// Функция для разложения вектора по ортогональному базису с использованием Eigen
+// Г”ГіГ­ГЄГ¶ГЁГї Г¤Г«Гї Г°Г Г§Г«Г®Г¦ГҐГ­ГЁГї ГўГҐГЄГІГ®Г°Г  ГЇГ® Г®Г°ГІГ®ГЈГ®Г­Г Г«ГјГ­Г®Г¬Гі ГЎГ Г§ГЁГ±Гі Г± ГЁГ±ГЇГ®Г«ГјГ§Г®ГўГ Г­ГЁГҐГ¬ Eigen
 Vector decompose_vector(const Vector& v, const Matrix& orthogonal_basis) {
     Vector coefficients(orthogonal_basis.rows());
     for (size_t i = 0; i < orthogonal_basis.rows(); ++i) {
@@ -63,14 +63,14 @@ Vector decompose_vector(const Vector& v, const Matrix& orthogonal_basis) {
     return coefficients;
 }
 
-// Вычисление l_k_i для конкретных индексов k и i
+// Г‚Г»Г·ГЁГ±Г«ГҐГ­ГЁГҐ l_k_i Г¤Г«Гї ГЄГ®Г­ГЄГ°ГҐГІГ­Г»Гµ ГЁГ­Г¤ГҐГЄГ±Г®Гў k ГЁ i
 inline double compute_l_k_i(const Vector& f_k_i, const Vector& e_i) {
     double dot_fk_ei = dot_product(f_k_i, e_i);
     double dot_ei_ei = dot_product(e_i, e_i);
     return (dot_ei_ei == 0) ? 0 : -dot_fk_ei / dot_ei_ei;
 }
 
-// Итеративная версия вычисления матрицы F
+// Г€ГІГҐГ°Г ГІГЁГўГ­Г Гї ГўГҐГ°Г±ГЁГї ГўГ»Г·ГЁГ±Г«ГҐГ­ГЁГї Г¬Г ГІГ°ГЁГ¶Г» F
 Matrix compute_F_matrix(const Matrix& l) {
     size_t n = l.rows();
     Matrix F_matrix = Matrix::Zero(n, n);
@@ -86,7 +86,7 @@ Matrix compute_F_matrix(const Matrix& l) {
     return F_matrix;
 }
 
-// Вычисление вектора b
+// Г‚Г»Г·ГЁГ±Г«ГҐГ­ГЁГҐ ГўГҐГЄГІГ®Г°Г  b
 Vector compute_bi(size_t k, const Vector& a_k, const Matrix& l) {
     Vector b = Vector::Zero(a_k.size());
     Matrix F_matrix = compute_F_matrix(l);
@@ -103,41 +103,41 @@ Vector compute_bi(size_t k, const Vector& a_k, const Matrix& l) {
     return b;
 }
 
-// Основная функция аппроксимации (ортогонализованный метод)
+// ГЋГ±Г­Г®ГўГ­Г Гї ГґГіГ­ГЄГ¶ГЁГї Г ГЇГЇГ°Г®ГЄГ±ГЁГ¬Г Г¶ГЁГЁ (Г®Г°ГІГ®ГЈГ®Г­Г Г«ГЁГ§Г®ГўГ Г­Г­Г»Г© Г¬ГҐГІГ®Г¤)
 Vector approximate_with_non_orthogonal_basis_orto(const Vector& x, const Matrix& f_k) {
 
     Matrix e_i = gram_schmidt(f_k);
 
-    // Разложение вектора x по ортогональному базису
+    // ГђГ Г§Г«Г®Г¦ГҐГ­ГЁГҐ ГўГҐГЄГІГ®Г°Г  x ГЇГ® Г®Г°ГІГ®ГЈГ®Г­Г Г«ГјГ­Г®Г¬Гі ГЎГ Г§ГЁГ±Гі
     Vector a_k = decompose_vector(x, e_i);
 
-    // Вычисление матрицы l_k_i
+    // Г‚Г»Г·ГЁГ±Г«ГҐГ­ГЁГҐ Г¬Г ГІГ°ГЁГ¶Г» l_k_i
     Matrix l_k_i(f_k.rows(), f_k.cols());
     for (size_t k = 0; k < f_k.rows(); ++k) {
         for (size_t i = 0; i < e_i.rows(); ++i) {
             l_k_i(k, i) = compute_l_k_i(f_k.row(k), e_i.row(i));
         }
     }
-    // Вычисляем результирующий вектор коэффициентов
+    // Г‚Г»Г·ГЁГ±Г«ГїГҐГ¬ Г°ГҐГ§ГіГ«ГјГІГЁГ°ГіГѕГ№ГЁГ© ГўГҐГЄГІГ®Г° ГЄГ®ГЅГґГґГЁГ¶ГЁГҐГ­ГІГ®Гў
     size_t k = a_k.size() - 1;
     Vector b = compute_bi(k, a_k, l_k_i);
     return b;
 }
 
-// Обёртка для работы со стандартными векторами
+// ГЋГЎВёГ°ГІГЄГ  Г¤Г«Гї Г°Г ГЎГ®ГІГ» Г±Г® Г±ГІГ Г­Г¤Г Г°ГІГ­Г»Г¬ГЁ ГўГҐГЄГІГ®Г°Г Г¬ГЁ
 std::vector<double> approximate_with_non_orthogonal_basis_orto_std(
     const std::vector<double>& vector,
     const std::vector<std::vector<double>>& basis) {
-    // Преобразуем std::vector в Eigen::VectorXd
+    // ГЏГ°ГҐГ®ГЎГ°Г Г§ГіГҐГ¬ std::vector Гў Eigen::VectorXd
     Vector x = Eigen::Map<const Vector>(vector.data(), vector.size());
-    // Преобразуем двумерный std::vector в Eigen::MatrixXd
+    // ГЏГ°ГҐГ®ГЎГ°Г Г§ГіГҐГ¬ Г¤ГўГіГ¬ГҐГ°Г­Г»Г© std::vector Гў Eigen::MatrixXd
     size_t rows = basis.size();
     size_t cols = basis[0].size();
     Matrix f_k(rows, cols);
     for (size_t i = 0; i < rows; ++i)
         for (size_t j = 0; j < cols; ++j)
             f_k(i, j) = basis[i][j];
-    // Вычисляем коэффициенты
+    // Г‚Г»Г·ГЁГ±Г«ГїГҐГ¬ ГЄГ®ГЅГґГґГЁГ¶ГЁГҐГ­ГІГ»
     Vector result = approximate_with_non_orthogonal_basis_orto(x, f_k);
     return std::vector<double>(result.data(), result.data() + result.size());
 }
