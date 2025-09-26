@@ -130,9 +130,21 @@ void calculate_statistics(const std::string& root_folder,
         }
 
         CoeffMatrix band_results(bandH);
-        std::vector<std::vector<CoeffMatrix>> tile_results(row_ranges.size());
-        for (auto& row_tiles : tile_results) {
-            row_tiles.resize(col_ranges.size());
+        const int band_width = total_width;
+        std::vector<std::vector<char>> inside_mask(static_cast<std::size_t>(bandH), std::vector<char>(static_cast<std::size_t>(band_width), 0));
+        std::vector<std::vector<int>> prefix_indices(static_cast<std::size_t>(bandH), std::vector<int>(static_cast<std::size_t>(band_width + 1), 0));
+
+        for (int row = 0; row < bandH; ++row) {
+            auto& mask_row = inside_mask[static_cast<std::size_t>(row)];
+            auto& prefix_row = prefix_indices[static_cast<std::size_t>(row)];
+            prefix_row[0] = 0;
+            for (int col = 0; col < band_width; ++col) {
+                Point2i pt{ minX + col, minY + band_start + row };
+                bool inside = bg::within(pt, area_config.mariogramm_poly);
+                mask_row[static_cast<std::size_t>(col)] = static_cast<char>(inside);
+                prefix_row[static_cast<std::size_t>(col + 1)] = prefix_row[static_cast<std::size_t>(col)] + (inside ? 1 : 0);
+            }
+            band_results[static_cast<std::size_t>(row)].resize(static_cast<std::size_t>(prefix_row[static_cast<std::size_t>(band_width)]));
         }
         std::vector<std::future<void>> futs;
         futs.reserve(row_ranges.size() * col_ranges.size());
@@ -149,73 +161,47 @@ void calculate_statistics(const std::string& root_folder,
                 if (col_start >= col_end) {
                     continue;
                 }
-                futs.emplace_back(std::async(std::launch::async, [&, row_idx, col_idx, row_start, row_end, col_start, col_end]() {
-                    CoeffMatrix local(row_end - row_start);
+                futs.emplace_back(std::async(std::launch::async, [&, row_start, row_end, col_start, col_end]() {
                     for (int i = row_start; i < row_end; ++i) {
-                        std::vector<CoefficientData> row;
-                        auto tile_capacity = static_cast<std::size_t>(std::max(0, col_end - col_start));
-                        row.reserve(tile_capacity);
+                        auto& mask_row = inside_mask[static_cast<std::size_t>(i)];
+                        auto& prefix_row = prefix_indices[static_cast<std::size_t>(i)];
+                        auto& dst_row = band_results[static_cast<std::size_t>(i)];
                         for (int x = col_start; x < col_end; ++x) {
-                            Point2i pt{ x, minY + band_start + i };
-                            if (!bg::within(pt, area_config.mariogramm_poly))
+                            int col_local = x - minX;
+                            if (col_local < 0 || col_local >= band_width) {
                                 continue;
+                            }
 
                             Eigen::VectorXd wave_vec(T);
-                            for (int t = 0; t < T; ++t)
+                            for (int t = 0; t < T; ++t) {
                                 wave_vec[t] = wave_data[t][i][x];
+                            }
 
                             Eigen::MatrixXd B(n_basis, T);
-                            for (int b = 0; b < n_basis; ++b)
-                                for (int t = 0; t < T; ++t)
+                            for (int b = 0; b < n_basis; ++b) {
+                                for (int t = 0; t < T; ++t) {
                                     B(b, t) = fk_data[b][t][i][x];
+                                }
+                            }
 
                             auto coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
                             Eigen::VectorXd approx = B.transpose() * coefs;
                             double err = std::sqrt((wave_vec - approx).squaredNorm() / T);
 
-                            row.push_back({ pt, coefs, err });
+                            if (mask_row[static_cast<std::size_t>(col_local)]) {
+                                std::size_t insert_idx = static_cast<std::size_t>(prefix_row[static_cast<std::size_t>(col_local)]);
+                                if (insert_idx < dst_row.size()) {
+                                    dst_row[insert_idx] = { Point2i{ x, minY + band_start + i }, std::move(coefs), err };
+                                }
+                            }
                         }
-                        local[i - row_start] = std::move(row);
                     }
-                    tile_results[row_idx][col_idx] = std::move(local);
                 }));
             }
         }
 
         for (auto& f : futs) {
             f.get();
-        }
-
-        for (std::size_t row_idx = 0; row_idx < row_ranges.size(); ++row_idx) {
-            int row_start = row_ranges[row_idx].first;
-            int row_end = row_ranges[row_idx].second;
-            for (int i = row_start; i < row_end; ++i) {
-                std::size_t local_idx = static_cast<std::size_t>(i - row_start);
-                std::size_t total_row_size = 0;
-                for (std::size_t col_idx = 0; col_idx < col_ranges.size(); ++col_idx) {
-                    const auto& tile_row = tile_results[row_idx][col_idx];
-                    if (local_idx < tile_row.size()) {
-                        total_row_size += tile_row[local_idx].size();
-                    }
-                }
-                if (total_row_size == 0) {
-                    continue;
-                }
-
-                auto& dst_row = band_results[i];
-                dst_row.reserve(total_row_size);
-                for (std::size_t col_idx = 0; col_idx < col_ranges.size(); ++col_idx) {
-                    auto& tile_row = tile_results[row_idx][col_idx];
-                    if (local_idx >= tile_row.size()) {
-                        continue;
-                    }
-                    auto& segment = tile_row[local_idx];
-                    if (!segment.empty()) {
-                        std::move(segment.begin(), segment.end(), std::back_inserter(dst_row));
-                        segment.clear();
-                    }
-                }
-            }
         }
 
         for (auto& row : band_results) {
