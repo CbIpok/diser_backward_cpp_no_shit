@@ -5,7 +5,7 @@
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <LocalDebuggerCommandArguments>C:\res_100 C:\res_100  Tokai_most functions_pow2 basis_25</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments>T:\tsumami_temp_shared_folder\res_100 C:\res_100  Tokai_most functions_pow2 basis_36 basis_49  basis_81  basis_100</LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
 </Project>
