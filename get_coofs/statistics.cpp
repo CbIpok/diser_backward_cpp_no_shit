@@ -104,7 +104,7 @@ void calculate_statistics(const std::string& root_folder,
             col_tiles = 1;
             tile_width = total_width;
         }
-        while (!row_ranges.empty() && row_ranges.size() * col_tiles < hardware_threads && tile_width > 1) {
+        while (!row_ranges.empty() && row_ranges.size() * col_tiles < hardware_threads*2 && tile_width > 1) {
             int next_width = tile_width > min_preferred_tile_width
                 ? std::max(min_preferred_tile_width, tile_width / 2)
                 : std::max(tile_width / 2, 1);
