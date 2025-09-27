@@ -25,7 +25,6 @@ Matrix gram_schmidt(const Matrix& vectors) {
 
                 // Проверка деления на ноль (или слишком малое значение)
                 if (std::abs(denominator) < 1e-10) {
-                    std::cout << "f: " << orthogonal_vectors.row(j) << std::endl;
                     throw std::runtime_error("Деление на ноль: нормированный вектор слишком близок к нулю.");
                 }
                 double scale = dot_product(new_vector, orthogonal_vectors.row(j)) / denominator;

@@ -1,4 +1,5 @@
-п»ї#include "statistics.h"
+// statistics.cpp
+#include "statistics.h"
 #include "approx_orto.h"
 #include <Eigen/Dense>
 #include <fstream>
@@ -6,36 +7,29 @@
 #include <sstream>
 #include <future>
 #include <algorithm>
-#include "json.hpp"  // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ nlohmann::json
+#include <utility>
+#include <thread>
+#include <iterator>
+#include "json.hpp"
+#include <boost/geometry.hpp>
+#include <boost/geometry/geometries/point.hpp>
+#include <string_view>
 
 using json = nlohmann::json;
+namespace bg = boost::geometry;
+using Point2i = bg::model::d2::point_xy<int>;
 
-//// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ QR-пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
-//std::pair<Eigen::VectorXd, Eigen::VectorXd> approximate_with_non_orthogonal_basis(const Eigen::VectorXd& x, const Eigen::MatrixXd& basis) {
-//    // пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ:
-//    Eigen::VectorXd coeffs = basis.transpose().colPivHouseholderQr().solve(x);
-//    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ (пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ)
-//    Eigen::VectorXd approximation = basis.transpose() * coeffs;
-//    return { approximation, coeffs };
-//}
-
-//
-// пїЅпїЅпїЅпїЅпїЅпїЅпїЅ calculate_statistics
-// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ NetCDF (WaveManager пїЅ BasisManager), пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
-// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ (wave_vector) пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ (smoothed_basis) пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
-// пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ (non orto) пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ (orto).
-//
 
 int count_from_name(const std::string& name) {
-    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ '_'
+  
     std::size_t underscorePos = name.find('_');
     if (underscorePos != std::string::npos) {
-        // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ '_'
+     
         std::string numberPart = name.substr(underscorePos + 1);
-        // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ
+     
         return std::stoi(numberPart);
     }
-    // пїЅпїЅпїЅпїЅ '_' пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ, пїЅпїЅпїЅпїЅпїЅпїЅ 0 пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
+   
     return 0;
 }
 
@@ -45,112 +39,220 @@ void calculate_statistics(const std::string& root_folder,
     const std::string& basis,
     const AreaConfigurationInfo& area_config,
     CoeffMatrix& statistics_orto) {
-    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ
-    std::string basis_path = root_folder + "/" + bath + "/" + basis;
-    std::string wave_nc_path = root_folder + "/" + bath + "/" + wave + ".nc";
 
-    BasisManager basis_manager(basis_path);
-    WaveManager wave_manager(wave_nc_path);
+    // 1) вычисляем границы полигона
+    int minY = area_config.height, maxY = 0;
+    int minX = area_config.width, maxX = 0;
+    for (auto const& p : area_config.mariogramm_poly.outer()) {
+        minX = std::min(minX, int(bg::get<0>(p)));
+        maxX = std::max(maxX, int(bg::get<0>(p)));
+        minY = std::min(minY, int(bg::get<1>(p)));
+        maxY = std::max(maxY, int(bg::get<1>(p)));
+    }
+    BasisManager basis_manager(root_folder + "/" + bath + "/" + basis);
+    WaveManager  wave_manager(root_folder + "/" + bath + "/" + wave + ".nc");
 
-    int width = area_config.all[0];
-    int height = area_config.all[1];
-    int batch_size = 64 * 6 / count_from_name(basis);
-    int y_start_init = 75;
+    int H = maxY - minY;
 
-    statistics_orto.clear();
+    // Для оценки ширины полосы чтения загружаем одну строку
+    auto fk_sample = basis_manager.get_fk_region(minY, minY + 1);
+    auto wave_sample = wave_manager.load_mariogramm_by_region(minY, minY + 1);
+    if (fk_sample.empty() || wave_sample.empty()) return;
 
-    for (int y_start = y_start_init; y_start < height / 4; y_start += batch_size) {
-        int y_end = std::min(y_start + batch_size, height);
-        auto wave_data = wave_manager.load_mariogramm_by_region(y_start, y_end);
-        auto fk_data = basis_manager.get_fk_region(y_start, y_end);
-        if (wave_data.empty() || fk_data.empty()) continue;
-        int T = wave_data.size();
-        int region_height = wave_data[0].size();
-        int region_width = wave_data[0][0].size();
-        int n_basis = fk_data.size();
+    int T = static_cast<int>(wave_sample.size());
+    int W = static_cast<int>(wave_sample[0][0].size());
+    int n_basis = static_cast<int>(fk_sample.size());
 
-        int x_max = width / 4;
-        std::cout << "loaded\n";
+    constexpr std::size_t MAX_MEMORY_BYTES = 45ULL * 1024ULL * 1024ULL * 1024ULL; // 45 GB
+    std::size_t bytes_per_row = static_cast<std::size_t>(n_basis + 1) * T * W * sizeof(double);
+    int band_height = static_cast<int>(std::max<std::size_t>(1, MAX_MEMORY_BYTES / bytes_per_row));
 
-        std::vector<std::future<std::vector<CoefficientData>>> futures;
-        futures.reserve(region_height);
+    for (int band_start = 0; band_start < H; band_start += band_height) {
+        int band_end = std::min(H, band_start + band_height);
 
-        for (int i = 0; i < region_height; i++) {
-            futures.push_back(std::async(std::launch::async, [i, T, x_max, n_basis, &wave_data, &fk_data]() -> std::vector<CoefficientData> {
-                std::vector<CoefficientData> row_data;
-                for (int x = 0; x < x_max; x++) {
-                    // пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
-                    Eigen::VectorXd wave_vector(T);
-                    for (int t = 0; t < T; t++) {
-                        wave_vector[t] = wave_data[t][i][x];
-                    }
-                    // пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ (n_basis x T)
-                    Eigen::MatrixXd smoothed_basis(n_basis, T);
-                    for (int b = 0; b < n_basis; b++) {
-                        for (int t = 0; t < T; t++) {
-                            smoothed_basis(b, t) = fk_data[b][t][i][x];
-                        }
-                    }
-                    if (smoothed_basis.cols() != wave_vector.size()) continue;
+        auto fk_data = basis_manager.get_fk_region(minY + band_start, minY + band_end);
+        auto wave_data = wave_manager.load_mariogramm_by_region(minY + band_start, minY + band_end);
+        if (fk_data.empty() || wave_data.empty()) continue;
 
-                    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
-                    Eigen::VectorXd coefs_orto = approximate_with_non_orthogonal_basis_orto(wave_vector, smoothed_basis);
+        int bandH = band_end - band_start;
+        if (bandH <= 0)
+            continue;
 
-                    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ:
-                    Eigen::VectorXd approximation = smoothed_basis.transpose() * coefs_orto;
-                    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ (RMSE)
-                    double error = std::sqrt((wave_vector - approximation).squaredNorm() / wave_vector.size());
+        // 2) параллельно по строкам блока на 24 потока
+        constexpr int THREADS = 48;
+        int rows_per_thread = std::max(1, (bandH + THREADS - 1) / THREADS);
 
-                    CoefficientData pixelData;
-                    pixelData.coefs = coefs_orto;
-                    pixelData.aprox_error = error;
-                    row_data.push_back(pixelData);
-                }
-                return row_data;
-                }));
+        // заранее режем загруженный блок на жирные диапазоны строк,
+        // чтобы каждый поток получил свою крупную порцию работы
+        std::vector<std::pair<int, int>> row_ranges;
+        row_ranges.reserve((bandH + rows_per_thread - 1) / rows_per_thread);
+        for (int start = 0; start < bandH; start += rows_per_thread) {
+            int end = std::min(start + rows_per_thread, bandH);
+            row_ranges.emplace_back(start, end);
         }
 
-        for (auto& future : futures) {
-            auto row_data = future.get();
-            if (!row_data.empty()) {
-                statistics_orto.push_back(row_data);
+        const int total_width = std::max(1, maxX - minX + 1);
+        const unsigned hardware_threads = std::max(1u, std::thread::hardware_concurrency());
+        const int default_tile_width = 128;
+        const int min_preferred_tile_width = 64;
+        int tile_width = std::min(default_tile_width, total_width);
+        if (tile_width < min_preferred_tile_width && total_width >= min_preferred_tile_width) {
+            tile_width = min_preferred_tile_width;
+        }
+        std::size_t col_tiles = static_cast<std::size_t>((total_width + tile_width - 1) / tile_width);
+        if (col_tiles == 0) {
+            col_tiles = 1;
+            tile_width = total_width;
+        }
+        while (!row_ranges.empty() && row_ranges.size() * col_tiles < hardware_threads && tile_width > 1) {
+            int next_width = tile_width > min_preferred_tile_width
+                ? std::max(min_preferred_tile_width, tile_width / 2)
+                : std::max(tile_width / 2, 1);
+            if (next_width == tile_width) {
+                if (tile_width == 1) {
+                    break;
+                }
+                next_width = 1;
             }
+            tile_width = next_width;
+            col_tiles = static_cast<std::size_t>((total_width + tile_width - 1) / tile_width);
+        }
+
+        std::vector<std::pair<int, int>> col_ranges;
+        col_ranges.reserve(col_tiles);
+        for (int start = minX; start <= maxX; start += tile_width) {
+            int end = std::min(start + tile_width, maxX + 1);
+            if (start < end) {
+                col_ranges.emplace_back(start, end);
+            }
+        }
+        if (col_ranges.empty()) {
+            col_ranges.emplace_back(minX, maxX + 1);
+        }
+
+        CoeffMatrix band_results(bandH);
+        std::vector<std::vector<CoeffMatrix>> tile_results(row_ranges.size());
+        for (auto& row_tiles : tile_results) {
+            row_tiles.resize(col_ranges.size());
+        }
+        std::vector<std::future<void>> futs;
+        futs.reserve(row_ranges.size() * col_ranges.size());
+
+        for (std::size_t row_idx = 0; row_idx < row_ranges.size(); ++row_idx) {
+            int row_start = row_ranges[row_idx].first;
+            int row_end = row_ranges[row_idx].second;
+            if (row_start >= row_end) {
+                continue;
+            }
+            for (std::size_t col_idx = 0; col_idx < col_ranges.size(); ++col_idx) {
+                int col_start = col_ranges[col_idx].first;
+                int col_end = col_ranges[col_idx].second;
+                if (col_start >= col_end) {
+                    continue;
+                }
+                futs.emplace_back(std::async(std::launch::async, [&, row_idx, col_idx, row_start, row_end, col_start, col_end]() {
+                    CoeffMatrix local(row_end - row_start);
+                    for (int i = row_start; i < row_end; ++i) {
+                        std::vector<CoefficientData> row;
+                        auto tile_capacity = static_cast<std::size_t>(std::max(0, col_end - col_start));
+                        row.reserve(tile_capacity);
+                        for (int x = col_start; x < col_end; ++x) {
+                            Point2i pt{ x, minY + band_start + i };
+                            if (!bg::within(pt, area_config.mariogramm_poly))
+                                continue;
+
+                            Eigen::VectorXd wave_vec(T);
+                            for (int t = 0; t < T; ++t)
+                                wave_vec[t] = wave_data[t][i][x];
+
+                            Eigen::MatrixXd B(n_basis, T);
+                            for (int b = 0; b < n_basis; ++b)
+                                for (int t = 0; t < T; ++t)
+                                    B(b, t) = fk_data[b][t][i][x];
+
+                            try {
+                                Eigen::VectorXd coefs = approximate_with_non_orthogonal_basis_orto(wave_vec, B);
+                                Eigen::VectorXd approx = B.transpose() * coefs;
+                                double err = std::sqrt((wave_vec - approx).squaredNorm() / T);
+
+                                CoefficientData data;
+                                data.pt = pt;
+                                data.coefs = std::move(coefs);
+                                data.aprox_error = err;
+                                row.push_back(std::move(data));
+                            }
+                            catch (const std::runtime_error& ex) {
+                                if (std::string_view(ex.what()).find("Деление на ноль") != std::string_view::npos) {
+                                    CoefficientData data;
+                                    data.pt = pt;
+                                    data.is_nan = true;
+                                    row.push_back(std::move(data));
+                                }
+                                else {
+                                    throw;
+                                }
+                            }
+                        }
+                        local[i - row_start] = std::move(row);
+                    }
+                    tile_results[row_idx][col_idx] = std::move(local);
+                }));
+            }
+        }
+
+        for (auto& f : futs) {
+            f.get();
+        }
+
+        for (std::size_t row_idx = 0; row_idx < row_ranges.size(); ++row_idx) {
+            int row_start = row_ranges[row_idx].first;
+            int row_end = row_ranges[row_idx].second;
+            for (int i = row_start; i < row_end; ++i) {
+                std::size_t local_idx = static_cast<std::size_t>(i - row_start);
+                std::size_t total_row_size = 0;
+                for (std::size_t col_idx = 0; col_idx < col_ranges.size(); ++col_idx) {
+                    const auto& tile_row = tile_results[row_idx][col_idx];
+                    if (local_idx < tile_row.size()) {
+                        total_row_size += tile_row[local_idx].size();
+                    }
+                }
+                if (total_row_size == 0) {
+                    continue;
+                }
+
+                auto& dst_row = band_results[i];
+                dst_row.reserve(total_row_size);
+                for (std::size_t col_idx = 0; col_idx < col_ranges.size(); ++col_idx) {
+                    auto& tile_row = tile_results[row_idx][col_idx];
+                    if (local_idx >= tile_row.size()) {
+                        continue;
+                    }
+                    auto& segment = tile_row[local_idx];
+                    if (!segment.empty()) {
+                        std::move(segment.begin(), segment.end(), std::back_inserter(dst_row));
+                        segment.clear();
+                    }
+                }
+            }
+        }
+
+        for (auto& row : band_results) {
+            if (!row.empty())
+                statistics_orto.push_back(std::move(row));
         }
     }
 }
-
-//// пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ CSV-пїЅпїЅпїЅпїЅ
-//void save_coefficients_csv(const std::string& filename, const CoeffMatrix& coeffs) {
-//    std::ofstream ofs(filename);
-//    if (!ofs.is_open()) {
-//        std::cerr << "пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ " << filename << " пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ.\n";
-//        return;
-//    }
-//    // пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ, пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ (пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ)
-//    for (const auto& row : coeffs) {
-//        bool firstCell = true;
-//        for (const auto& vec : row) {
-//            if (!firstCell) ofs << ",";
-//            firstCell = false;
-//            std::ostringstream oss;
-//            for (int i = 0; i < vec.size(); i++) {
-//                oss << vec[i];
-//                if (i + 1 < vec.size()) oss << " ";
-//            }
-//            ofs << oss.str();
-//        }
-//        ofs << "\n";
-//    }
-//    ofs.close();
-//    std::cout << "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ: " << filename << "\n";
-//}
 
 void save_coefficients_json(const std::string& filename, const CoeffMatrix& coeffs) {
     nlohmann::json j;
     for (size_t row = 0; row < coeffs.size(); ++row) {
         for (size_t col = 0; col < coeffs[row].size(); ++col) {
-            std::string key = "[" + std::to_string(row) + "," + std::to_string(col) + "]";
-            // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ Eigen::VectorXd пїЅ std::vector<double>
+            std::string key = "[" + std::to_string(bg::get<0>(coeffs[row][col].pt)) + "," + std::to_string(bg::get<1>(coeffs[row][col].pt)) + "]";
+            if (coeffs[row][col].is_nan) {
+                j[key] = "nan";
+                continue;
+            }
+
             std::vector<double> vec(coeffs[row][col].coefs.data(),
                 coeffs[row][col].coefs.data() + coeffs[row][col].coefs.size());
             double error = coeffs[row][col].aprox_error;
@@ -159,15 +261,14 @@ void save_coefficients_json(const std::string& filename, const CoeffMatrix& coef
     }
     std::ofstream ofs(filename);
     if (!ofs.is_open()) {
-        std::cerr << "пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ " << filename << " пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ.\n";
+        std::cerr << "error to write " << filename << " file.\n";
         return;
     }
     ofs << j.dump(4);
     ofs.close();
-    std::cout << "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ: " << filename << "\n";
+    std::cout << "saved: " << filename << "\n";
 }
 
-// пїЅпїЅпїЅпїЅпїЅпїЅпїЅ save_and_plot_statistics: пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ CSV
 void save_and_plot_statistics(const std::string& root_folder,
     const std::string& bath,
     const std::string& wave,
@@ -176,11 +277,9 @@ void save_and_plot_statistics(const std::string& root_folder,
     CoeffMatrix statistics_orto;
     calculate_statistics(root_folder, bath, wave, basis, area_config, statistics_orto);
 
-    std::string filename_orto = "case_statistics_hd_y_" + basis + bath + "_o.json";
-    //std::string filename_non_orto = "case_statistics_hd_y_" + basis + "_no.csv";
+    std::string filename_orto = "case_statistics_" + basis + bath + wave + "_o.json";
 
     save_coefficients_json(filename_orto, statistics_orto);
-    /*save_coefficients_json(filename_non_orto, statistics_non_orto);*/
 
-    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ Excel пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ Python пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ.
 }
+
